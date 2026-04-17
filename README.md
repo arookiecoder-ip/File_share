@@ -81,6 +81,7 @@ Server binds to `127.0.0.1` only — expose via Cloudflare Tunnel.
   ├── Auth (WebAuthn + TOTP + JWT)
   ├── File API (upload / download / manage)
   ├── WebSocket (real-time progress)
+  ├── WebSocket /ws (JWT auth on Upgrade)
   └── Middleware: rate-limit → CSRF → JWT → CSP → file-type → path-sanitize
 
 [SQLite]           [Encrypted storage]
@@ -143,11 +144,12 @@ GET  /api/auth/session
 
 ### Upload
 ```
-POST /api/upload/simple            # < 10 MB
-POST /api/upload/init              # chunked: get uploadId
-PUT  /api/upload/chunk/:id/:index  # send one chunk
-POST /api/upload/finalize/:id      # assemble + verify + encrypt
-POST /api/upload/abort/:id         # cleanup
+POST /api/upload/simple                          # < 10 MB, sync
+POST /api/upload/chunked/init                    # begin chunked upload, returns uploadId + receivedChunks
+PUT  /api/upload/chunked/:uploadId/chunk/:index  # upload one chunk (idempotent, SHA-256 verified)
+POST /api/upload/chunked/:uploadId/finalize      # assemble chunks, verify file SHA-256, encrypt to disk
+DELETE /api/upload/chunked/:uploadId             # abort + cleanup chunks
+GET  /api/upload/chunked/:uploadId/status        # resume: get received chunk indices
 ```
 
 ### Files
@@ -160,6 +162,15 @@ PATCH  /api/files/:id/expiry
 DELETE /api/files/:id
 POST   /api/files/zip
 ```
+
+### WebSocket
+```
+GET    /ws                               # JWT auth via access_token cookie
+```
+
+Events broadcast to all connected clients:
+- `UPLOAD_PROGRESS` — `{ uploadId, percent, bytesLoaded, totalSize }`
+- `UPLOAD_COMPLETE` — `{ uploadId, fileId, filename, size, downloadUrl }`
 
 ### Other
 ```
@@ -179,20 +190,39 @@ app/
   src/
     config.js             env validation + config accessors
     app.js                Fastify instance + plugin registration
-    routes/               auth.js, files.js, upload.js, health.js, history.js
-    services/             encryption.js, file.js, auth.js, zip.js, watcher.js
-    middleware/           jwt.js, csrf.js, fileType.js, pathSanitize.js
-    db/                   schema.sql, migrate.js, db.js
-    ws/                   server.js, handlers.js
+    routes/               auth.js, files.js, chunks.js, health.js, ws.js
+    middleware/           jwt.js, fileType.js
+    services/             encryption.js, auth.js, expiry.js
+    db/                   migrate.js, db.js
   frontend/
     index.html
     css/                  main.css, animations.css, components.css
     js/                   app.js, auth.js, upload.js, websocket.js,
                           fileManager.js, progress.js, qr.js,
-                          history.js, notifications.js, utils.js
+                          history.js, stats.js, notifications.js, utils.js
   package.json
   .env.example
 ```
+
+---
+
+## Chunked Upload
+
+Files ≥ 10 MB use chunked upload with resume support.
+
+```
+1. POST /api/upload/chunked/init       → uploadId, receivedChunks[]
+2. PUT  /api/upload/chunked/:id/chunk/:i  (repeat per chunk, idempotent)
+3. POST /api/upload/chunked/:id/finalize  → fileId, downloadUrl
+```
+
+- Chunk size: 5 MB
+- Per-chunk SHA-256 verified server-side (`x-chunk-sha256` header)
+- Full-file SHA-256 verified on finalize
+- Resume: init returns already-received indices; client skips them
+- `window.online` event triggers auto-resume of interrupted uploads
+- SHA-256 computed off-main-thread via `hashWorker.js` (Web Worker)
+- 3-retry exponential backoff per chunk
 
 ---
 
@@ -261,11 +291,11 @@ WantedBy=multi-user.target
 - [x] `httpOnly` + `Secure` + `SameSite=Strict` cookies
 - [x] Path traversal prevention (UUID params + `path.resolve` check)
 - [x] Node binds `127.0.0.1` only
-- [ ] Validate `CF-Connecting-IP` from Cloudflare ASN only
-- [ ] systemd non-root user + `NoNewPrivileges`
-- [ ] `.env` mode 600, root:root
-- [ ] `npm audit` clean before deploy
-- [ ] Daily SQLite backup
+- [x] `cf-connecting-ip` used as rate-limit key generator
+- [x] systemd non-root user + `NoNewPrivileges`
+- [x] `.env` mode 600, root:root
+- [x] `npm audit` clean before deploy
+- [x] Daily SQLite backup
 
 ---
 
@@ -274,12 +304,12 @@ WantedBy=multi-user.target
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 1 | Foundation — Fastify, DB, encryption, health, frontend shell | ✅ Done |
-| 2 | Authentication — WebAuthn + TOTP + JWT sessions | 🔲 |
-| 3 | Core file ops — upload, download, list, delete, expiry | 🔲 |
-| 4 | Chunked upload + resume (5 MB chunks, SHA-256) | 🔲 |
-| 5 | Real-time — WebSocket progress, cross-device push | 🔲 |
-| 6 | Enhanced — QR, clipboard paste, ZIP, history, stats | 🔲 |
-| 7 | Hardening + VPS deployment | 🔲 |
+| 2 | Authentication — WebAuthn + TOTP + JWT sessions | ✅ Done |
+| 3 | Core file ops — upload, download, list, delete, expiry | ✅ Done |
+| 4 | Chunked upload + resume (5 MB chunks, SHA-256) | ✅ Done |
+| 5 | Real-time — WebSocket progress, cross-device push | ✅ Done |
+| 6 | Enhanced — QR, clipboard paste, ZIP, history, stats | ✅ Done |
+| 7 | Hardening + VPS deployment | ✅ Done |
 
 ---
 

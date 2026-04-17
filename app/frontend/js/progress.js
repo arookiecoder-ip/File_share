@@ -54,6 +54,17 @@ const Progress = {
     }, 2000);
   },
 
+  // Called by upload.js to track bytes as chunks complete locally
+  advance(uploadId, bytes) {
+    const item = this._items.get(uploadId);
+    if (!item) return;
+    item.bytesLoaded = (item.bytesLoaded || 0) + bytes;
+    const elapsed = (Date.now() - item.startTime) / 1000;
+    const speedBps = elapsed > 0 ? item.bytesLoaded / elapsed : 0;
+    const percent = item.totalBytes > 0 ? (item.bytesLoaded / item.totalBytes) * 100 : 0;
+    this.update(uploadId, percent, item.bytesLoaded, speedBps);
+  },
+
   error(uploadId, msg) {
     const item = this._items.get(uploadId);
     if (!item) return;

@@ -1,0 +1,27 @@
+[Unit]
+Description=Groovy YAO Secure File Transfer
+After=network.target
+
+[Service]
+Type=simple
+User=filetransfer
+Group=filetransfer
+WorkingDirectory=/opt/filetransfer/app
+EnvironmentFile=/opt/filetransfer/.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/filetransfer/storage /opt/filetransfer/chunks /opt/filetransfer/db /opt/filetransfer/logs
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -3,7 +3,7 @@ const HistoryModule = {
     const container = document.getElementById('view-history');
     container.innerHTML = '<div style="color:var(--color-text-dim);padding:24px">LOADING...</div>';
     try {
-      const res = await fetch('/api/history', { credentials: 'same-origin' });
+      const res = await fetch('/api/history?limit=100', { credentials: 'same-origin' });
       if (!res.ok) throw new Error('Failed to load history');
       const events = await res.json();
       this._render(container, events);
@@ -17,14 +17,20 @@ const HistoryModule = {
       container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⬡</div><div class="empty-state-text">NO HISTORY YET</div></div>';
       return;
     }
+
+    const typeClass = { upload: 'event-upload', download: 'event-download', delete: 'event-delete', expire: 'event-expire' };
+
     container.innerHTML = `
+      <div class="history-toolbar">
+        <button id="btn-clear-history" class="btn btn-danger btn-sm">CLEAR HISTORY</button>
+      </div>
       <table class="history-table">
         <thead><tr><th>EVENT</th><th>FILE</th><th>SIZE</th><th>TIME</th></tr></thead>
         <tbody>
           ${events.map((e) => `
             <tr>
-              <td class="event-${e.event_type}">${e.event_type.toUpperCase()}</td>
-              <td>${e.file_id ? Utils.escape(e.file_id.slice(0, 8) + '…') : '—'}</td>
+              <td><span class="${typeClass[e.event_type] || ''}">${e.event_type.toUpperCase()}</span></td>
+              <td class="mono-dim">${e.file_id ? Utils.escape(e.file_id.slice(0, 8) + '…') : '—'}</td>
               <td>${e.size_bytes ? Utils.formatBytes(e.size_bytes) : '—'}</td>
               <td>${Utils.formatRelativeTime(e.timestamp)}</td>
             </tr>
@@ -32,5 +38,11 @@ const HistoryModule = {
         </tbody>
       </table>
     `;
+
+    container.querySelector('#btn-clear-history').addEventListener('click', async () => {
+      if (!confirm('Clear all transfer history?')) return;
+      await fetch('/api/history', { method: 'DELETE', credentials: 'same-origin' });
+      this.init();
+    });
   },
 };

@@ -2,6 +2,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const QRCode = require('qrcode');
+const archiver = require('archiver');
+const { validateFileType } = require('../middleware/fileType');
 const { getDb } = require('../db/db');
 const { config } = require('../config');
 const {
@@ -101,6 +104,12 @@ async function filesRoutes(fastify) {
     if (!keydata) {
       fs.unlink(filePath, () => {});
       return reply.code(500).send({ error: 'Encryption key not generated' });
+    }
+
+    const typeCheck = await validateFileType(Buffer.concat(chunks.slice(0, 4)), data.filename);
+    if (!typeCheck.ok) {
+      fs.unlink(filePath, () => {});
+      return reply.code(422).send({ error: typeCheck.reason });
     }
 
     const sha256 = hasher.digest('hex');
@@ -223,6 +232,97 @@ async function filesRoutes(fastify) {
     `).run(uuidv4(), 'delete', row.id, row.size_bytes, ipHash(req.ip), Date.now());
 
     return reply.send({ ok: true });
+  });
+  // ── QR code ───────────────────────────────────────────────────────────────
+  fastify.get('/files/:id/qr', async (req, reply) => {
+    const db = getDb();
+    const row = db.prepare('SELECT id, original_name, original_name_iv, encryption_tag FROM files WHERE id = ? AND status = ?').get(req.params.id, 'complete');
+    if (!row) return reply.code(404).send({ error: 'File not found' });
+
+    const downloadUrl = `${config.domain}/api/files/${row.id}/download`;
+    const dataUrl = await QRCode.toDataURL(downloadUrl, { width: 256, margin: 2 });
+    return reply.send({ dataUrl, downloadUrl });
+  });
+
+  // ── Extend expiry ─────────────────────────────────────────────────────────
+  fastify.patch('/files/:id/expiry', async (req, reply) => {
+    const { expiresIn } = req.body || {};
+    if (!EXPIRY_OPTIONS[expiresIn]) return reply.code(400).send({ error: 'Invalid expiresIn' });
+
+    const db = getDb();
+    const row = db.prepare('SELECT id, expires_at FROM files WHERE id = ? AND status = ?').get(req.params.id, 'complete');
+    if (!row) return reply.code(404).send({ error: 'File not found' });
+
+    const base = row.expires_at && row.expires_at > Date.now() ? row.expires_at : Date.now();
+    const newExpiry = base + EXPIRY_OPTIONS[expiresIn];
+    db.prepare('UPDATE files SET expires_at = ? WHERE id = ?').run(newExpiry, row.id);
+    return reply.send({ ok: true, expires_at: newExpiry });
+  });
+
+  // ── ZIP streaming (multi-file) ────────────────────────────────────────────
+  fastify.post('/files/zip', async (req, reply) => {
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) return reply.code(400).send({ error: 'ids required' });
+    if (ids.length > 50) return reply.code(400).send({ error: 'Max 50 files per ZIP' });
+
+    const db = getDb();
+    const files = ids.map((id) => db.prepare('SELECT * FROM files WHERE id = ? AND status = ?').get(id, 'complete')).filter(Boolean);
+    if (files.length === 0) return reply.code(404).send({ error: 'No files found' });
+
+    reply.header('Content-Type', 'application/zip');
+    reply.header('Content-Disposition', 'attachment; filename="transfer.zip"');
+
+    const archive = archiver('zip', { zlib: { level: 0 } });
+    reply.send(archive);
+
+    for (const row of files) {
+      const saltHex = row.encryption_iv.split(':')[0];
+      let filename;
+      try {
+        const nameTag = row.encryption_tag.split(':')[1];
+        filename = decryptFilename(row.original_name, row.original_name_iv, nameTag, row.id);
+      } catch { filename = row.id; }
+
+      const filePath = storagePath(row.storage_id);
+      if (!fs.existsSync(filePath)) continue;
+
+      const readStream = fs.createReadStream(filePath);
+      const decStream = createDecryptStream(row.id, saltHex);
+      readStream.pipe(decStream);
+      archive.append(decStream, { name: filename });
+    }
+
+    archive.finalize();
+  });
+
+  // ── Transfer history ──────────────────────────────────────────────────────
+  fastify.get('/history', async (req, reply) => {
+    const limit = Math.min(200, parseInt(req.query.limit || '100', 10));
+    const db = getDb();
+    const events = db.prepare(
+      'SELECT * FROM transfer_history ORDER BY timestamp DESC LIMIT ?'
+    ).all(limit);
+    return reply.send(events);
+  });
+
+  fastify.delete('/history', async (req, reply) => {
+    getDb().prepare('DELETE FROM transfer_history').run();
+    return reply.send({ ok: true });
+  });
+
+  // ── Stats ─────────────────────────────────────────────────────────────────
+  fastify.get('/stats', async (req, reply) => {
+    const db = getDb();
+    const files = db.prepare("SELECT COUNT(*) as count, SUM(size_bytes) as total_bytes FROM files WHERE status = 'complete'").get();
+    const uploads = db.prepare("SELECT COUNT(*) as count, SUM(size_bytes) as total_bytes FROM transfer_history WHERE event_type = 'upload'").get();
+    const downloads = db.prepare("SELECT COUNT(*) as count FROM transfer_history WHERE event_type = 'download'").get();
+    const expired = db.prepare("SELECT COUNT(*) as count FROM transfer_history WHERE event_type = 'expire'").get();
+    return reply.send({
+      files: { count: files.count, total_bytes: files.total_bytes || 0 },
+      uploads: { count: uploads.count, total_bytes: uploads.total_bytes || 0 },
+      downloads: { count: downloads.count },
+      expired: { count: expired.count },
+    });
   });
 }
 

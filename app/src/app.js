@@ -70,6 +70,10 @@ async function buildApp() {
   await fastify.register(require('./routes/files'),  { prefix: '/api' });
   await fastify.register(require('./routes/chunks'), { prefix: '/api' });
 
+  // WebSocket route
+  const { wsRoutes } = require('./routes/ws');
+  await fastify.register(wsRoutes);
+
   // Expiry watcher
   const { startExpiryWatcher } = require('./services/expiry');
   startExpiryWatcher();

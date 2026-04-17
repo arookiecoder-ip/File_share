@@ -150,6 +150,7 @@
           const el = document.getElementById(`view-${view}`);
           if (el) el.classList.add('active');
           if (view === 'history') HistoryModule.init();
+          if (view === 'stats') StatsModule.init();
         });
       });
 
@@ -170,6 +171,9 @@
       WSClient.on('UPLOAD_COMPLETE', (msg) => {
         Progress.complete(msg.uploadId);
         FileManagerModule.refresh();
+      });
+      WSClient.on('DOWNLOAD_READY', (msg) => {
+        Notifications.success('DOWNLOAD READY', msg.filename || '');
       });
     },
   };

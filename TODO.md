@@ -37,32 +37,32 @@
 - [x] Frontend: UploadManager chunking logic (5MB chunks, 3-retry backoff)
 - [x] Frontend: resume on reconnect
 
-## Phase 5 — Real-Time 🔲
-- [ ] WebSocket server (JWT auth on Upgrade request)
-- [ ] Server emits UPLOAD_PROGRESS per chunk
-- [ ] Server emits UPLOAD_COMPLETE / DOWNLOAD_READY
-- [ ] Frontend: WebSocketClient singleton + reconnect
-- [ ] Frontend: CyberpunkProgressBar (WS-driven, segmented, neon glow)
-- [ ] Frontend: SpeedOMeter
-- [ ] Frontend: Toast notifications for WS events
-- [ ] Cross-device push (upload on laptop → phone gets WS notification)
+## Phase 5 — Real-Time ✅
+- [x] WebSocket server (JWT auth on Upgrade request)
+- [x] Server emits UPLOAD_PROGRESS per chunk
+- [x] Server emits UPLOAD_COMPLETE / DOWNLOAD_READY
+- [x] Frontend: WebSocketClient singleton + reconnect
+- [x] Frontend: CyberpunkProgressBar (WS-driven, segmented, neon glow)
+- [x] Frontend: SpeedOMeter
+- [x] Frontend: Toast notifications for WS events
+- [x] Cross-device push (upload on laptop → phone gets WS notification)
 
-## Phase 6 — Enhanced Features 🔲
-- [ ] QR code generation endpoint + frontend overlay
-- [ ] Clipboard paste handler (images + files)
-- [ ] Multi-file + folder upload → ZIP streaming
-- [ ] Transfer history endpoint + history view
-- [ ] Extend expiry action
-- [ ] Grid view toggle in FileManager
-- [ ] Stats endpoint + dashboard widget
+## Phase 6 — Enhanced Features ✅
+- [x] QR code generation endpoint + frontend overlay
+- [x] Clipboard paste handler (images + files)
+- [x] Multi-file + folder upload → ZIP streaming
+- [x] Transfer history endpoint + history view
+- [x] Extend expiry action
+- [x] Grid view toggle in FileManager
+- [x] Stats endpoint + dashboard widget
 
-## Phase 7 — Hardening + Deployment 🔲
-- [ ] Full security checklist audit
-- [ ] file-type MIME validation integrated
-- [ ] npm audit — 0 high/critical
-- [ ] cloudflared tunnel setup + DNS config
-- [ ] systemd service file (non-root user, resource limits)
-- [ ] .env setup (not in repo, mode 600)
-- [ ] Log rotation config
-- [ ] Daily SQLite backup script
+## Phase 7 — Hardening + Deployment ✅
+- [x] Full security checklist audit
+- [x] file-type MIME validation integrated
+- [x] npm audit — 0 high/critical
+- [x] cloudflared tunnel setup + DNS config
+- [x] systemd service file (non-root user, resource limits)
+- [x] .env setup (not in repo, mode 600)
+- [x] Log rotation config
+- [x] Daily SQLite backup script
 - [ ] Load test: 2GB file upload with autocannon

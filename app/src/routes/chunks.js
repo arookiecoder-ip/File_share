@@ -9,6 +9,8 @@ const {
   encryptFilename,
   decryptFilename,
 } = require('../services/encryption');
+const { broadcast } = require('./ws');
+const { validateFileType } = require('../middleware/fileType');
 
 const EXPIRY_OPTIONS = {
   '1h':  60 * 60 * 1000,
@@ -150,6 +152,16 @@ async function chunksRoutes(fastify) {
 
     db.prepare('UPDATE uploads SET updated_at = ? WHERE id = ?').run(now, uploadId);
 
+    // Emit progress event
+    const receivedCount = db.prepare(
+      'SELECT COUNT(*) as cnt FROM upload_chunks WHERE upload_id = ?'
+    ).get(uploadId).cnt;
+    const percent = Math.round((receivedCount / upload.total_chunks) * 100);
+    const bytesLoaded = db.prepare(
+      'SELECT SUM(size_bytes) as total FROM upload_chunks WHERE upload_id = ?'
+    ).get(uploadId).total || 0;
+    broadcast('UPLOAD_PROGRESS', { uploadId, percent, bytesLoaded, totalSize: upload.total_size });
+
     return reply.send({ ok: true, chunkIndex, size, sha256: actualSha });
   });
 
@@ -222,6 +234,14 @@ async function chunksRoutes(fastify) {
       return reply.code(500).send({ error: 'Encryption key not generated' });
     }
 
+    // MIME validation on first chunk bytes
+    const firstChunkBuf = fs.readFileSync(chunkFile(uploadId, 0));
+    const typeCheck = await validateFileType(firstChunkBuf.slice(0, 4100), upload.original_name);
+    if (!typeCheck.ok) {
+      fs.unlink(outPath, () => {});
+      return reply.code(422).send({ error: typeCheck.reason });
+    }
+
     const actualSha = plainHasher.digest('hex');
     if (actualSha !== upload.sha256_expected) {
       fs.unlink(outPath, () => {});
@@ -270,6 +290,14 @@ async function chunksRoutes(fastify) {
     try {
       filename = decryptFilename(encName, nameIv, nameTag, fileId);
     } catch { /* fallback */ }
+
+    broadcast('UPLOAD_COMPLETE', {
+      uploadId,
+      fileId,
+      filename,
+      size: totalSize,
+      downloadUrl: `/api/files/${fileId}/download`,
+    });
 
     return reply.code(201).send({
       fileId,

@@ -103,6 +103,7 @@ const FileManagerModule = {
         <td class="file-actions">
           <button class="btn btn-ghost btn-sm" data-action="download" data-id="${f.id}">DL</button>
           <button class="btn btn-ghost btn-sm" data-action="qr"       data-id="${f.id}">QR</button>
+          <button class="btn btn-ghost btn-sm" data-action="extend"   data-id="${f.id}">+EXP</button>
           <button class="btn btn-danger btn-sm" data-action="delete"  data-id="${f.id}">DEL</button>
         </td>
       </tr>
@@ -117,6 +118,7 @@ const FileManagerModule = {
         <div class="file-card-actions">
           <button class="btn btn-ghost btn-sm" data-action="download" data-id="${f.id}">DL</button>
           <button class="btn btn-ghost btn-sm" data-action="qr"       data-id="${f.id}">QR</button>
+          <button class="btn btn-ghost btn-sm" data-action="extend"   data-id="${f.id}">+EXP</button>
           <button class="btn btn-danger btn-sm" data-action="delete"  data-id="${f.id}">DEL</button>
         </div>
       </div>
@@ -132,11 +134,30 @@ const FileManagerModule = {
         window.location.href = `/api/files/${id}/download`;
       } else if (action === 'qr') {
         QRModule.show(id);
+      } else if (action === 'extend') {
+        await this._extendExpiry(id);
       } else if (action === 'delete') {
         if (!confirm('Delete this file?')) return;
         await this._deleteFile(id);
       }
     });
+  },
+
+  async _extendExpiry(id) {
+    const expiresIn = prompt('Extend by: 1h / 6h / 24h / 7d / 30d', '24h');
+    if (!expiresIn) return;
+    const res = await fetch(`/api/files/${id}/expiry`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expiresIn }),
+      credentials: 'same-origin',
+    });
+    if (res.ok) {
+      Notifications.success('Expiry extended');
+      this.refresh();
+    } else {
+      Notifications.error('Extend failed');
+    }
   },
 
   async _deleteFile(id) {
