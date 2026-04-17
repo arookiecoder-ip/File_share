@@ -357,6 +357,23 @@ html, body {
   max-width: 360px;
 }
 
+/* ── Footer ── */
+.app-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 24px;
+  font-size: 0.68rem;
+  color: var(--color-text-dim);
+  border-top: 1px solid var(--color-border);
+  letter-spacing: 0.08em;
+  flex-shrink: 0;
+}
+.footer-sep { color: var(--color-border2); }
+.footer-link { color: var(--color-cyan-dim); text-decoration: none; }
+.footer-link:hover { color: var(--color-cyan); }
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--color-bg); }

@@ -14,6 +14,10 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Build-time git metadata
+ARG GIT_COMMIT=unknown
+ARG GIT_TIME=unknown
+
 # Non-root user
 RUN addgroup -S filetransfer && adduser -S -G filetransfer filetransfer
 
@@ -22,6 +26,9 @@ COPY --from=deps /build/node_modules ./node_modules
 
 # App source
 COPY --chown=filetransfer:filetransfer . .
+
+# Bake git info into a static JSON file served as a frontend asset
+RUN echo "{\"commit\":\"${GIT_COMMIT}\",\"time\":\"${GIT_TIME}\"}" > frontend/version.json
 
 # Persistent data dirs — mount these as volumes
 RUN mkdir -p /data/storage /data/chunks /data/db /data/logs \

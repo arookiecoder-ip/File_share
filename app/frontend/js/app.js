@@ -180,5 +180,13 @@
     },
   };
 
+  fetch('/version.json').then(r => r.json()).then(v => {
+    const el = document.getElementById('footer-version');
+    if (!el) return;
+    const short = v.commit !== 'unknown' ? v.commit.slice(0, 7) : 'dev';
+    const date = v.time !== 'unknown' ? new Date(v.time).toISOString().slice(0, 10) : '';
+    el.textContent = date ? `${short} · ${date}` : short;
+  }).catch(() => {});
+
   boot();
 })();
