@@ -160,17 +160,28 @@ async function authRoutes(fastify) {
       return reply.code(400).send({ error: 'Verification failed' });
     }
 
-    const { credential } = verification.registrationInfo;
+    const {
+      credentialID,
+      credentialPublicKey,
+      counter,
+      credentialDeviceType,
+      // v10 may nest under `credential` — support both shapes
+      credential,
+    } = verification.registrationInfo;
+    const id = credential?.id ?? credentialID;
+    const publicKey = credential?.publicKey ?? credentialPublicKey;
+    const credCounter = credential?.counter ?? counter;
+    const deviceType = credential?.deviceType ?? credentialDeviceType ?? null;
     const now = Date.now();
 
     db.prepare(`
       INSERT INTO webauthn_credentials (id, public_key, counter, device_type, transports, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(
-      credential.id,
-      Buffer.from(credential.publicKey),
-      credential.counter,
-      verification.registrationInfo.credentialDeviceType || null,
+      id,
+      Buffer.from(publicKey),
+      credCounter,
+      deviceType,
       JSON.stringify(body.response?.transports || []),
       now,
     );
