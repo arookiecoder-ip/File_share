@@ -4,7 +4,8 @@ services:
       context: ./app
       dockerfile: Dockerfile
     restart: unless-stopped
-    network_mode: host          # cloudflared on same host → 127.0.0.1:3000
+    ports:
+      - "127.0.0.1:3002:3000"
     env_file: ./app/.env
     volumes:
       - filetransfer_storage:/data/storage
