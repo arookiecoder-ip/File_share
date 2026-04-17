@@ -20,7 +20,7 @@ async function start() {
   const app = await buildApp();
 
   try {
-    await app.listen({ port: config.port, host: '127.0.0.1' });
+    await app.listen({ port: config.port, host: '0.0.0.0' });
     app.log.info(`Groovy YAO listening on 127.0.0.1:${config.port}`);
   } catch (err) {
     app.log.error(err);

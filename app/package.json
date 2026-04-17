@@ -28,7 +28,8 @@
     "file-type": "^19",
     "node-cron": "^3",
     "jose": "^5",
-    "uuid": "^9"
+    "uuid": "^9",
+    "dotenv": "^16"
   },
   "devDependencies": {
     "vitest": "^1",
