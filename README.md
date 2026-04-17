@@ -63,7 +63,7 @@ npm run dev
 npm start
 ```
 
-Server binds to `127.0.0.1` only — expose via Cloudflare Tunnel.
+Server binds to `0.0.0.0` inside Docker — exposed to host via port mapping, proxied by Nginx.
 
 ---
 
@@ -75,19 +75,20 @@ Server binds to `127.0.0.1` only — expose via Cloudflare Tunnel.
     ▼
 [Cloudflare DNS + WAF + DDoS]
     │
-[Cloudflare Tunnel → cloudflared]
-    │
-[Fastify — 127.0.0.1 only]
-  ├── Auth (WebAuthn + TOTP + JWT)
-  ├── File API (upload / download / manage)
-  ├── WebSocket (real-time progress)
-  ├── WebSocket /ws (JWT auth on Upgrade)
-  └── Middleware: rate-limit → CSRF → JWT → CSP → file-type → path-sanitize
+[Nginx reverse proxy — subdomain]
+    │ proxy_pass 127.0.0.1:3002
+    ▼
+[Docker container — port 3002:3000]
+  [Fastify — 0.0.0.0:3000]
+    ├── Auth (WebAuthn + TOTP + JWT)
+    ├── File API (upload / download / manage)
+    ├── WebSocket /ws (JWT auth on Upgrade)
+    └── Middleware: rate-limit → CSRF → JWT → CSP → file-type → path-sanitize
 
-[SQLite]           [Encrypted storage]
-  credentials        AES-256-GCM blobs
-  sessions           UUID filenames only
-  file metadata      chunks/ (temp, auto-wiped)
+[SQLite]           [Encrypted storage]       [Docker volumes]
+  credentials        AES-256-GCM blobs         filetransfer_storage
+  sessions           UUID filenames only        filetransfer_chunks
+  file metadata      chunks/ (temp, auto-wiped) filetransfer_db
   transfer history
 ```
 
@@ -226,54 +227,112 @@ Files ≥ 10 MB use chunked upload with resume support.
 
 ---
 
-## VPS Deployment
+## VPS Deployment (Docker + Nginx)
 
-### Directory layout
+### Prerequisites
 
-```
-/opt/filetransfer/
-  app/          → clone repo here
-  storage/      → AES-256 blobs (UUID names)
-  chunks/       → temp, wiped post-finalize
-  db/
-    filetransfer.db
-  logs/
-  .env          → root:root, mode 600, NOT in repo
-```
+- Docker + Docker Compose installed on VPS
+- Nginx installed (`apt install nginx`)
+- Certbot installed (`apt install certbot python3-certbot-nginx`)
+- Domain A record pointing to VPS IP
 
-### systemd service
+### 1. Clone repo
 
-```ini
-[Unit]
-Description=Groovy YAO File Transfer
-After=network.target
-
-[Service]
-Type=simple
-User=filetransfer
-Group=filetransfer
-WorkingDirectory=/opt/filetransfer/app
-EnvironmentFile=/opt/filetransfer/.env
-ExecStart=/usr/bin/node server.js
-Restart=always
-RestartSec=5
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ReadWritePaths=/opt/filetransfer/storage /opt/filetransfer/db /opt/filetransfer/logs
-
-[Install]
-WantedBy=multi-user.target
+```bash
+cd /opt
+mkdir filetransfer && cd filetransfer
+git clone https://github.com/YOUR_USER/YOUR_REPO.git app
 ```
 
-### Cloudflare setup
+### 2. Configure .env
 
-1. Install `cloudflared` on VPS
-2. Run `cloudflared tunnel create filetransfer`
-3. Point DNS CNAME to tunnel
-4. Set TLS mode to **Full (Strict)**
-5. Enable WAF OWASP Core Ruleset
-6. Set Cloudflare edge rate limit: 1000 req/min
+```bash
+cp app/app/.env.example app/app/.env
+nano app/app/.env
+```
+
+```env
+PORT=3000
+DOMAIN=https://files.yourdomain.com      # must include https://
+NODE_ENV=production
+MASTER_SECRET=<64 hex chars>
+JWT_SECRET=<64 hex chars>
+CSRF_SECRET=<32 hex chars>
+IP_HMAC_KEY=<32 hex chars>
+STORAGE_PATH=/data/storage               # absolute path — must start with /
+CHUNKS_PATH=/data/chunks                 # absolute path — must start with /
+DB_PATH=/data/db/filetransfer.db         # absolute path — must start with /
+MAX_FILE_SIZE_MB=5120
+```
+
+Generate secrets:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"  # → 64 hex (MASTER_SECRET, JWT_SECRET)
+node -e "console.log(require('crypto').randomBytes(16).toString('hex'))"  # → 32 hex (CSRF_SECRET, IP_HMAC_KEY)
+```
+
+> **Gotchas:**
+> - `DOMAIN` must be `https://yourdomain.com` — WebAuthn will fail without the protocol prefix
+> - `STORAGE_PATH`, `CHUNKS_PATH`, `DB_PATH` must be absolute paths starting with `/` — relative paths cause permission errors inside Docker
+
+### 3. Start Docker
+
+```bash
+cd /opt/filetransfer/app
+docker compose up -d --build
+docker compose logs -f
+```
+
+Data is persisted in named Docker volumes: `filetransfer_storage`, `filetransfer_chunks`, `filetransfer_db`, `filetransfer_logs`.
+
+### 4. Nginx config
+
+```bash
+nano /etc/nginx/sites-available/filetransfer
+```
+
+```nginx
+server {
+    listen 80;
+    server_name files.yourdomain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3002;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600;
+        proxy_send_timeout 3600;
+        client_max_body_size 5120m;
+    }
+}
+```
+
+```bash
+ln -s /etc/nginx/sites-available/filetransfer /etc/nginx/sites-enabled/
+nginx -t && systemctl reload nginx
+```
+
+### 5. SSL
+
+```bash
+certbot --nginx -d files.yourdomain.com
+```
+
+> DNS A record must exist and propagate before Certbot will succeed. Verify with `nslookup files.yourdomain.com`.
+
+### 6. Update on new release
+
+```bash
+cd /opt/filetransfer/app
+git pull
+docker compose down
+docker compose up -d --build
+```
 
 ---
 
@@ -290,9 +349,9 @@ WantedBy=multi-user.target
 - [x] HSTS via Cloudflare + Helmet
 - [x] `httpOnly` + `Secure` + `SameSite=Strict` cookies
 - [x] Path traversal prevention (UUID params + `path.resolve` check)
-- [x] Node binds `127.0.0.1` only
+- [x] Node binds `0.0.0.0` inside Docker, port-mapped to `127.0.0.1:3002` on host
 - [x] `cf-connecting-ip` used as rate-limit key generator
-- [x] systemd non-root user + `NoNewPrivileges`
+- [x] Docker non-root user (`filetransfer`) + read-only app layer
 - [x] `.env` mode 600, root:root
 - [x] `npm audit` clean before deploy
 - [x] Daily SQLite backup

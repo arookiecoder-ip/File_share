@@ -226,9 +226,9 @@ async function authRoutes(fastify) {
         expectedChallenge: (c) => consumeChallenge(db, c, 'authentication'),
         expectedOrigin: origin(),
         expectedRPID: rpID(),
-        credential: {
-          id: credential.id,
-          publicKey: new Uint8Array(credential.public_key),
+        authenticator: {
+          credentialID: credential.id,
+          credentialPublicKey: new Uint8Array(credential.public_key),
           counter: credential.counter,
           transports: JSON.parse(credential.transports || '[]'),
         },
