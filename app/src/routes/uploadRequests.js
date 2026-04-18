@@ -43,7 +43,16 @@ function uploadLandingPage(state, token, nonce) {
             const dz = document.getElementById('dz');
             const fi = document.getElementById('fi');
             const fileList = document.getElementById('file-list');
-            const CHUNK = 20 * 1024 * 1024;
+            const CHUNK = 64 * 1024 * 1024;
+            const PARALLEL_CHUNKS = 3;
+            let activeUploads = 0;
+
+            window.addEventListener('beforeunload', e => {
+              if (activeUploads > 0) {
+                e.preventDefault();
+                e.returnValue = '';
+              }
+            });
 
             dz.addEventListener('click', () => fi.click());
             dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dz-over'); });
@@ -65,6 +74,7 @@ function uploadLandingPage(state, token, nonce) {
                   setRowError(row, 'exceeds 10 GB limit');
                   continue;
                 }
+                activeUploads++;
                 try {
                   if (file.size <= 500 * 1024 * 1024) {
                     await simpleUpload(file, row);
@@ -73,6 +83,8 @@ function uploadLandingPage(state, token, nonce) {
                   }
                 } catch(err) {
                   setRowError(row, err.message || 'Upload failed');
+                } finally {
+                  activeUploads--;
                 }
               }
             }
@@ -168,7 +180,8 @@ function uploadLandingPage(state, token, nonce) {
 
               const startTime = Date.now();
               let uploaded = 0;
-              for (let i = 0; i < totalChunks; i++) {
+
+              async function uploadChunk(i) {
                 const start = i * CHUNK;
                 const slice = file.slice(start, start + CHUNK);
                 const fd = new FormData();
@@ -180,6 +193,16 @@ function uploadLandingPage(state, token, nonce) {
                 uploaded += slice.size;
                 setRowProgress(row, Math.round(uploaded / file.size * 100), uploaded, file.size, startTime);
               }
+
+              // sliding window: PARALLEL_CHUNKS in-flight at once
+              let next = 0;
+              async function worker() {
+                while (next < totalChunks) {
+                  const i = next++;
+                  await uploadChunk(i);
+                }
+              }
+              await Promise.all(Array.from({ length: PARALLEL_CHUNKS }, worker));
 
               const finRes = await fetch('/api/u/' + token + '/chunked/' + uploadId + '/finalize', { method: 'POST' });
               if (!finRes.ok) { const e = await finRes.json().catch(()=>({})); throw new Error(e.error || 'Finalize failed'); }
