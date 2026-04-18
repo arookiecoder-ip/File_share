@@ -18,6 +18,13 @@ const QRModule = {
       img.innerHTML = `<div style="color:var(--color-red)">${Utils.escape(err.message)}</div>`;
     }
 
+    const copyBtn = document.getElementById('qr-copy-link');
+    copyBtn.onclick = () => {
+      Utils.copyToClipboard(document.getElementById('qr-url').textContent);
+      const orig = copyBtn.textContent;
+      copyBtn.textContent = 'COPIED!';
+      setTimeout(() => { copyBtn.textContent = orig; }, 1500);
+    };
     document.getElementById('qr-close').onclick = () => overlay.classList.add('hidden');
     overlay.onclick = (e) => { if (e.target === overlay) overlay.classList.add('hidden'); };
   },
