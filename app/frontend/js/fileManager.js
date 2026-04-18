@@ -79,7 +79,7 @@ const FileManagerModule = {
             <tr>
               <th>NAME</th>
               <th>SIZE</th>
-              <th>UPLOADED (IST)</th>
+              <th>UPLOADED D&T</th>
               <th class="col-expiry">EXPIRES</th>
               <th class="col-downloads">Downloads</th>
               <th>ACTIONS</th>
