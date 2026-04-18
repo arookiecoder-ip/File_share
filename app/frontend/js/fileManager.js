@@ -127,6 +127,7 @@ const FileManagerModule = {
         <td class="file-actions">
           <button class="btn btn-ghost btn-sm" data-action="download" data-id="${f.id}">Download</button>
           ${f.is_public ? `<button class="btn btn-ghost btn-sm" data-action="qr" data-id="${f.id}">QR Code</button>` : ''}
+          ${f.is_public ? `<button class="btn btn-ghost btn-sm" data-action="copylink" data-id="${f.id}">Copy Link</button>` : ''}
           ${this._visToggle(f)}
           <button class="btn btn-ghost btn-sm" data-action="extend"  data-id="${f.id}">Extend</button>
           <button class="btn btn-danger btn-sm" data-action="delete" data-id="${f.id}">Delete</button>
@@ -144,6 +145,7 @@ const FileManagerModule = {
         <div class="file-card-actions">
           <button class="btn btn-ghost btn-sm" data-action="download" data-id="${f.id}">Download</button>
           ${f.is_public ? `<button class="btn btn-ghost btn-sm" data-action="qr" data-id="${f.id}">QR Code</button>` : ''}
+          ${f.is_public ? `<button class="btn btn-ghost btn-sm" data-action="copylink" data-id="${f.id}">Copy Link</button>` : ''}
           ${this._visToggle(f)}
           <button class="btn btn-ghost btn-sm" data-action="extend"  data-id="${f.id}">Extend</button>
           <button class="btn btn-danger btn-sm" data-action="delete" data-id="${f.id}">Delete</button>
@@ -167,6 +169,11 @@ const FileManagerModule = {
       const { action, id } = btn.dataset;
       if (action === 'download') {
         window.location.href = `/api/files/${id}/download`;
+      } else if (action === 'copylink') {
+        Utils.copyToClipboard(`${location.origin}/api/files/${id}/download`);
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = orig; }, 1500);
       } else if (action === 'qr') {
         QRModule.show(id);
       } else if (action === 'visibility') {
