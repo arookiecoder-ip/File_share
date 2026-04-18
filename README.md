@@ -12,7 +12,7 @@ Self-hosted, single-user file transfer system. Runs on a VPS behind Cloudflare T
 | HTTP | Fastify 4 |
 | WebSocket | @fastify/websocket |
 | Database | SQLite (better-sqlite3) |
-| Auth | WebAuthn (passkey) + TOTP |
+| Auth | WebAuthn (passkey) + TOTP + Password |
 | Encryption | AES-256-GCM, HKDF key derivation |
 | Frontend | Vanilla JS + custom CSS |
 
@@ -63,8 +63,6 @@ npm run dev
 npm start
 ```
 
-Server binds to `0.0.0.0` inside Docker — exposed to host via port mapping, proxied by Nginx.
-
 ---
 
 ## Architecture
@@ -80,10 +78,10 @@ Server binds to `0.0.0.0` inside Docker — exposed to host via port mapping, pr
     ▼
 [Docker container — port 3002:3000]
   [Fastify — 0.0.0.0:3000]
-    ├── Auth (WebAuthn + TOTP + JWT)
+    ├── Auth (WebAuthn + TOTP + Password + JWT)
     ├── File API (upload / download / manage)
     ├── WebSocket /ws (JWT auth on Upgrade)
-    └── Middleware: rate-limit → CSRF → JWT → CSP → file-type → path-sanitize
+    └── Middleware: rate-limit → JWT → CSP → file-type
 
 [SQLite]           [Encrypted storage]       [Docker volumes]
   credentials        AES-256-GCM blobs         filetransfer_storage
@@ -102,10 +100,10 @@ Server binds to `0.0.0.0` inside Docker — exposed to host via port mapping, pr
 - Library: `@simplewebauthn/server`
 
 **Fallback — Password & TOTP**
-- Standalone Password login or Password + TOTP Combination
-- Rate-limited (5 attempts / 10 min) and protected by `bcrypt` hashes (12 rounds)
-- Full Auto-Login capabilities using rotation-bound Device Tokens
-- TOTP Backup codes: SHA-256 hashed, one-time use
+- Standalone Password login or Password + TOTP combination
+- Rate-limited (5 attempts / 10 min), `bcrypt` hashes (12 rounds)
+- Auto-login via rotation-bound Device Tokens (30-day)
+- TOTP backup codes: SHA-256 hashed, one-time use
 
 **Sessions**
 - Access token: JWT, 15-min expiry, `httpOnly` cookie
@@ -117,9 +115,9 @@ Server binds to `0.0.0.0` inside Docker — exposed to host via port mapping, pr
 ## Encryption
 
 ```
-Master key  = HKDF(SHA-256, MASTER_SECRET, salt="filetransfer-v1", info="file-encryption")
+Master key   = HKDF(SHA-256, MASTER_SECRET, salt="filetransfer-v1", info="file-encryption")
 Per-file key = HKDF(master key, random_16B_salt, info=file_uuid)
-Cipher      = AES-256-GCM, random 12-byte IV, 16-byte GCM tag
+Cipher       = AES-256-GCM, random 12-byte IV, 16-byte GCM tag
 
 Stream format on disk: [12-byte IV][ciphertext][16-byte GCM tag]
 ```
@@ -130,15 +128,23 @@ Stream format on disk: [12-byte IV][ciphertext][16-byte GCM tag]
 
 ---
 
-## Security Architecture (Hardened)
+## File Visibility & Share Links
 
-The application perimeter and internal engines have been independently audited for production deployment:
+Files have two visibility states — **Private** (default) and **Public**.
 
-- **HTTPS Constraint Hooks**: Fastify inherently intercepts and demands `https://` proxy evaluations (`x-forwarded-proto`), forcefully re-routing outbound unencrypted frames globally in production boundaries.
-- **SQLite Encapsulation**: The persistence engine statically accesses independent runtime storage, entirely blocked from `/frontend/` structures to omit standard database web crawler indexing natively.
-- **XSS & DOM Hardening**: Direct assignments into the Document Object Model UI are strongly protected via mathematical `Utils.escape()` overrides completely rendering tags, quotes, and bounds into benign encoded equivalents prior to hydration.
-- **Memory Defensive Streams**: AES-256-GCM logic strictly utilizes 16-byte rolling window streams to authenticate gigabyte payload headers. It functionally eliminates OOM (Out Of Memory) Denial of Service attacks when parsing multithreaded downloads.
-- **Rate Limit & Internal Telemetry**: Utilizing `Pino`, specific backend authentication hooks broadcast distinct log outputs capturing explicitly flagged `AUTH_SUCCESS` / `AUTH_FAILURE` metrics and intercepting API DDOS abuse patterns dynamically under customized `TRAFFIC_ANOMALY` logs. Unhandled inner bugs squelch securely into an anonymous `500 - Internal Server Error` protecting structural database stack traces.
+### Private files
+- Downloadable only from the dashboard by an authenticated (logged-in) user
+- No shareable URL exists — the internal `/api/files/:id/download` route requires a valid session cookie
+- Cannot be accessed from any other browser or device without logging in
+
+### Public files
+- Every time a file is toggled **→ Public**, a fresh cryptographically random share token is generated (`crypto.randomBytes(24).base64url`)
+- The public download URL is: `https://yourdomain.com/api/files/s/<token>/download`
+- Toggling **→ Private** clears the token — the old URL immediately returns **Access Denied**
+- Toggling **→ Public** again generates a **new** token — all previous public links are invalidated
+- QR codes and Copy Link always use the token URL, never the internal file ID
+
+This means sharing a file is opt-in per toggle cycle. Old links can never be reused or guessed.
 
 ---
 
@@ -152,46 +158,56 @@ POST /api/auth/webauthn/authenticate/begin
 POST /api/auth/webauthn/authenticate/complete
 POST /api/auth/totp/setup
 POST /api/auth/totp/verify
+POST /api/auth/password/set
+POST /api/auth/password/login
+POST /api/auth/combo/login              # password + TOTP together
 POST /api/auth/logout
 GET  /api/auth/session
+GET  /api/auth/first-run
 ```
 
 ### Upload
 ```
-POST /api/upload/simple                          # < 10 MB, sync
-POST /api/upload/chunked/init                    # begin chunked upload, returns uploadId + receivedChunks
-PUT  /api/upload/chunked/:uploadId/chunk/:index  # upload one chunk (idempotent, SHA-256 verified)
-POST /api/upload/chunked/:uploadId/finalize      # assemble chunks, verify file SHA-256, encrypt to disk
-DELETE /api/upload/chunked/:uploadId             # abort + cleanup chunks
-GET  /api/upload/chunked/:uploadId/status        # resume: get received chunk indices
+POST /api/upload/simple                           # < 10 MB, sync
+POST /api/upload/chunked/init                     # begin chunked upload
+PUT  /api/upload/chunked/:uploadId/chunk/:index   # upload one chunk (idempotent, SHA-256 verified)
+POST /api/upload/chunked/:uploadId/finalize       # assemble + verify + encrypt to disk
+DELETE /api/upload/chunked/:uploadId              # abort + cleanup
+GET  /api/upload/chunked/:uploadId/status         # resume: get received chunk indices
 ```
 
-### Files
+### Files (authenticated)
 ```
-GET    /api/files
-GET    /api/files/:id
-GET    /api/files/:id/download
-GET    /api/files/:id/qr
-PATCH  /api/files/:id/expiry
+GET    /api/files                        # list all files
+GET    /api/files/:id/download           # download — requires auth session
+GET    /api/files/:id/qr                 # QR code for public share URL (403 if private)
+PATCH  /api/files/:id/visibility         # toggle public/private, returns new shareToken
+PATCH  /api/files/:id/expiry             # extend expiry
 DELETE /api/files/:id
-POST   /api/files/zip
+POST   /api/files/zip                    # stream ZIP of multiple files
 ```
 
-### WebSocket
+### Public download (no auth required)
 ```
-GET    /ws                               # JWT auth via access_token cookie
+GET /api/files/s/:token/download         # token-gated public download
+                                         # ?dl=1 skips download page, streams file directly
 ```
-
-Events broadcast to all connected clients:
-- `UPLOAD_PROGRESS` — `{ uploadId, percent, bytesLoaded, totalSize }`
-- `UPLOAD_COMPLETE` — `{ uploadId, fileId, filename, size, downloadUrl }`
 
 ### Other
 ```
 GET    /api/history
 DELETE /api/history
 GET    /api/stats
-GET    /api/health          # no auth — Cloudflare health check
+GET    /api/health                       # no auth — health check
+GET    /ws                               # WebSocket (JWT cookie required)
+```
+
+### WebSocket events
+```
+UPLOAD_PROGRESS  — { uploadId, percent, bytesLoaded, totalSize }
+UPLOAD_COMPLETE  — { uploadId, fileId, filename, size, downloadUrl }
+FILE_UPDATED     — { fileId }
+FILE_DELETED     — { fileId }
 ```
 
 ---
@@ -204,18 +220,42 @@ app/
   src/
     config.js             env validation + config accessors
     app.js                Fastify instance + plugin registration
-    routes/               auth.js, files.js, chunks.js, health.js, ws.js
-    middleware/           jwt.js, fileType.js
-    services/             encryption.js, auth.js, expiry.js
-    db/                   migrate.js, db.js
+    routes/
+      auth.js             WebAuthn, TOTP, password, session, device tokens
+      files.js            upload, download, visibility, expiry, QR, ZIP
+      chunks.js           chunked upload state machine
+      health.js           /api/health
+      ws.js               WebSocket broadcast
+    middleware/
+      jwt.js              JWT verification + refresh rotation hook
+      fileType.js         magic-byte MIME validation
+    services/
+      encryption.js       AES-256-GCM streams + HKDF key derivation
+      auth.js             JWT issue/verify, session CRUD, device tokens
+      expiry.js           background watcher — deletes expired files
+    db/
+      db.js               SQLite singleton
+      migrate.js          additive schema migrations (safe to re-run)
+      schema.sql          base schema
   frontend/
     index.html
     css/                  main.css, animations.css, components.css
-    js/                   app.js, auth.js, upload.js, websocket.js,
-                          fileManager.js, progress.js, qr.js,
-                          history.js, stats.js, notifications.js, utils.js
+    js/
+      app.js              boot, routing, session check
+      auth.js             login UI (passkey, TOTP, password)
+      upload.js           drag-drop, chunked upload, resume
+      fileManager.js      file list/grid, visibility toggle, copy link
+      qr.js               QR overlay with copy link button
+      websocket.js        WS client + reconnect backoff
+      progress.js         upload progress bar
+      history.js          transfer history panel
+      stats.js            storage stats panel
+      notifications.js    toast system
+      utils.js            shared helpers
+      hashWorker.js       SHA-256 Web Worker (off main thread)
   package.json
   .env.example
+  Dockerfile
 ```
 
 ---
@@ -240,69 +280,47 @@ Files ≥ 10 MB use chunked upload with resume support.
 
 ---
 
+## Database Schema
+
+Key tables:
+
+| Table | Purpose |
+|-------|---------|
+| `files` | File metadata, encryption keys, expiry, visibility, `share_token` |
+| `sessions` | JWT session records, refresh tokens (hashed) |
+| `webauthn_credentials` | Registered passkeys |
+| `totp_config` | Encrypted TOTP secret + backup codes |
+| `password_config` | bcrypt password hash |
+| `device_tokens` | 30-day auto-login tokens |
+| `transfer_history` | Audit log (upload, download, delete, expire events) |
+| `uploads` / `upload_chunks` | In-progress chunked upload state |
+
+Migrations run automatically at startup (`migrate.js`) — safe to re-run, additive only.
+
+---
+
 ## VPS Deployment (Docker + Nginx)
 
-### Prerequisites
-
-- Docker + Docker Compose installed on VPS
-- Nginx installed (`apt install nginx`)
-- Certbot installed (`apt install certbot python3-certbot-nginx`)
-- Domain A record pointing to VPS IP
-
-### 1. Clone repo
+### 1. Clone & configure
 
 ```bash
 cd /opt
-mkdir filetransfer && cd filetransfer
-git clone https://github.com/YOUR_USER/YOUR_REPO.git app
+git clone https://github.com/YOUR_USER/YOUR_REPO.git filetransfer
+cd filetransfer
+cp app/.env.example app/.env
+nano app/.env   # fill in all secrets + DOMAIN
 ```
 
-### 2. Configure .env
+### 2. Start Docker
 
 ```bash
-cp app/app/.env.example app/app/.env
-nano app/app/.env
-```
-
-```env
-PORT=3000
-DOMAIN=https://files.yourdomain.com      # must include https://
-NODE_ENV=production
-MASTER_SECRET=<64 hex chars>
-JWT_SECRET=<64 hex chars>
-CSRF_SECRET=<32 hex chars>
-IP_HMAC_KEY=<32 hex chars>
-STORAGE_PATH=/data/storage               # absolute path — must start with /
-CHUNKS_PATH=/data/chunks                 # absolute path — must start with /
-DB_PATH=/data/db/filetransfer.db         # absolute path — must start with /
-MAX_FILE_SIZE_MB=5120
-```
-
-Generate secrets:
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"  # → 64 hex (MASTER_SECRET, JWT_SECRET)
-node -e "console.log(require('crypto').randomBytes(16).toString('hex'))"  # → 32 hex (CSRF_SECRET, IP_HMAC_KEY)
-```
-
-> **Gotchas:**
-> - `DOMAIN` must be `https://yourdomain.com` — WebAuthn will fail without the protocol prefix
-> - `STORAGE_PATH`, `CHUNKS_PATH`, `DB_PATH` must be absolute paths starting with `/` — relative paths cause permission errors inside Docker
-
-### 3. Start Docker
-
-```bash
-cd /opt/filetransfer/app
 docker compose up -d --build
 docker compose logs -f
 ```
 
-Data is persisted in named Docker volumes: `filetransfer_storage`, `filetransfer_chunks`, `filetransfer_db`, `filetransfer_logs`.
+Docker volumes: `filetransfer_storage`, `filetransfer_chunks`, `filetransfer_db`, `filetransfer_logs`
 
-### 4. Nginx config
-
-```bash
-nano /etc/nginx/sites-available/filetransfer
-```
+### 3. Nginx config
 
 ```nginx
 server {
@@ -328,74 +346,57 @@ server {
 ```bash
 ln -s /etc/nginx/sites-available/filetransfer /etc/nginx/sites-enabled/
 nginx -t && systemctl reload nginx
-```
-
-### 5. SSL
-
-```bash
 certbot --nginx -d files.yourdomain.com
 ```
 
-> DNS A record must exist and propagate before Certbot will succeed. Verify with `nslookup files.yourdomain.com`.
-
-### 6. Update on new release
+### 4. Update
 
 ```bash
-cd /opt/filetransfer/app
 git pull
-docker compose down
-docker compose up -d --build
+docker compose down && docker compose up -d --build
 ```
+
+No manual DB migration needed — runs automatically on startup.
 
 ---
 
 ## Security Checklist
 
-- [x] AES-256-GCM encryption at rest, per-file random IV
+- [x] AES-256-GCM encryption at rest, per-file random IV + salt
 - [x] HKDF key derivation — raw master secret never used directly
-- [x] UUID-only filenames on disk
-- [x] Magic-byte MIME validation (`file-type`)
+- [x] UUID-only filenames on disk — original names encrypted in DB
+- [x] Magic-byte MIME validation (`file-type` library)
 - [x] Executable type blocking (exe, sh, dll, bat, ps1…)
-- [x] CSRF double-submit cookie
-- [x] Rate limiting (100 req/min general, 10 req/min auth)
-- [x] Strict CSP headers
-- [x] HSTS via Cloudflare + Helmet
+- [x] Rate limiting: 100 req/min global, 5–10 req/min on auth routes
+- [x] Strict CSP headers (production)
+- [x] HSTS (production)
 - [x] `httpOnly` + `Secure` + `SameSite=Strict` cookies
-- [x] Path traversal prevention (UUID params + `path.resolve` check)
-- [x] Node binds `0.0.0.0` inside Docker, port-mapped to `127.0.0.1:3002` on host
-- [x] `cf-connecting-ip` used as rate-limit key generator
-- [x] Docker non-root user (`filetransfer`) + read-only app layer
-- [x] `.env` mode 600, root:root
-- [x] `npm audit` clean before deploy
-- [x] Daily SQLite backup
+- [x] Private files inaccessible without authenticated session — no guessable public URL
+- [x] Public share tokens: 192-bit random, invalidated on every visibility toggle
+- [x] JWT access tokens: 15-min TTL, rotated refresh tokens (7-day, hashed in DB)
+- [x] WebAuthn domain-bound — phishing-resistant
+- [x] bcrypt password hashing (12 rounds)
+- [x] TOTP secrets encrypted at rest (AES-256-GCM)
+- [x] Docker non-root user + host port bound to `127.0.0.1` only
+- [x] Auth failure + traffic anomaly structured logging via Pino
+- [x] Internal errors return generic 500 — no stack traces to client
 
 ---
 
-## Implementation Phases
+## Changelog
 
-| Phase | Scope | Status |
-|-------|-------|--------|
-| 1 | Foundation — Fastify, DB, encryption, health, frontend shell | ✅ Done |
-| 2 | Authentication — WebAuthn + TOTP + JWT sessions | ✅ Done |
-| 3 | Core file ops — upload, download, list, delete, expiry | ✅ Done |
-| 4 | Chunked upload + resume (5 MB chunks, SHA-256) | ✅ Done |
-| 5 | Real-time — WebSocket progress, cross-device push | ✅ Done |
-| 6 | Enhanced — QR, clipboard paste, ZIP, history, stats | ✅ Done |
-| 7 | Hardening + VPS deployment | ✅ Done |
+### Latest patches
 
----
+**Share token system**
+- Public files now use a random token URL: `/api/files/s/:token/download`
+- Token regenerated on every `→ Public` toggle — old links immediately invalidated
+- Private files have no public URL; `/api/files/:id/download` requires an auth session
+- QR codes and Copy Link always use the token URL
 
-## Development
+**DB migration**
+- `share_token` column added to `files` table (auto-migrated on startup)
+- `db/*.db` added to `.gitignore` (was missing from coverage)
 
-```bash
-# Run tests
-npm test
-
-# E2E tests
-npm run test:e2e
-
-# Build frontend bundle
-npm run build
-```
-
-Tests use **Vitest** (unit) and **Playwright** (E2E).
+**Download page**
+- Extracted `accessDeniedPage()` and `downloadPage()` as reusable helpers
+- Access denied page shown for invalid/expired tokens in browser context
