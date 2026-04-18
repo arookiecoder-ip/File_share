@@ -24,7 +24,7 @@ function storagePath(storageId) {
   return path.join(config.storagePath, storageId);
 }
 
-function uploadLandingPage(state, token) {
+function uploadLandingPage(state, token, nonce) {
   const states = {
     valid: {
       title: 'UPLOAD FILE',
@@ -42,7 +42,7 @@ function uploadLandingPage(state, token) {
           <div class="prog-info" id="prog-info">0%</div>
         </div>
         <div id="result" class="result hidden"></div>
-        <script>
+        <script nonce="${nonce}">
           (function() {
             const token = ${JSON.stringify(token)};
             const dz = document.getElementById('dz');
@@ -295,12 +295,16 @@ async function uploadRequestRoutes(fastify) {
   fastify.get('/u/:token', { config: { public: true } }, async (req, reply) => {
     const db = getDb();
     const row = db.prepare('SELECT * FROM upload_requests WHERE token = ?').get(req.params.token);
+    const nonce = crypto.randomBytes(16).toString('base64');
+    reply.header('Content-Security-Policy',
+      `default-src 'self'; script-src 'nonce-${nonce}'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'`
+    );
 
-    if (!row) return reply.type('text/html').send(uploadLandingPage('notfound', null));
-    if (row.used) return reply.type('text/html').send(uploadLandingPage('used', null));
-    if (row.expires_at < Date.now()) return reply.type('text/html').send(uploadLandingPage('expired', null));
+    if (!row) return reply.type('text/html').send(uploadLandingPage('notfound', null, nonce));
+    if (row.used) return reply.type('text/html').send(uploadLandingPage('used', null, nonce));
+    if (row.expires_at < Date.now()) return reply.type('text/html').send(uploadLandingPage('expired', null, nonce));
 
-    return reply.type('text/html').send(uploadLandingPage('valid', req.params.token));
+    return reply.type('text/html').send(uploadLandingPage('valid', req.params.token, nonce));
   });
 
   // ── Simple upload via token (public) ────────────────────────────────────
