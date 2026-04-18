@@ -26,7 +26,9 @@ const Progress = {
     queue.appendChild(el);
     this._items.set(uploadId, { el, totalBytes, startTime: Date.now(), bytesLoaded: 0 });
 
-    el.querySelector(`#cancel-${uploadId}`).addEventListener('click', () => {
+    el.querySelector(`#cancel-${uploadId}`).addEventListener('click', async () => {
+      const confirmed = await Utils.confirm('Cancel this upload?', 'Cancel Upload');
+      if (!confirmed) return;
       UploadManager.abort(uploadId);
       this.cancelled(uploadId);
     });
