@@ -76,7 +76,7 @@ function uploadLandingPage(state, token, nonce) {
                 }
                 activeUploads++;
                 try {
-                  if (file.size <= 500 * 1024 * 1024) {
+                  if (file.size <= 50 * 1024 * 1024) {
                     await simpleUpload(file, row);
                   } else {
                     await chunkedUpload(file, row);
