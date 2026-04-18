@@ -153,6 +153,7 @@
           if (el) el.classList.add('active');
           if (view === 'history') HistoryModule.init();
           if (view === 'stats') StatsModule.init();
+          if (view === 'upload-links') UploadLinksModule.init();
         });
       });
 
@@ -169,11 +170,42 @@
         applyTheme(document.documentElement.getAttribute('data-theme') === 'light');
       });
 
+      // Create one-time upload link
+      document.getElementById('btn-create-upload-link').addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/upload-requests', { method: 'POST', credentials: 'same-origin' });
+          if (!res.ok) throw new Error('Failed to create link');
+          const { url } = await res.json();
+          Utils.copyToClipboard(url);
+          Notifications.success('UPLOAD LINK COPIED', url);
+        } catch (err) {
+          Notifications.error('Failed', err.message);
+        }
+      });
+
       // Logout
       document.getElementById('btn-logout').addEventListener('click', async () => {
         await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
         location.reload();
       });
+
+      // Disk storage bar
+      fetch('/api/stats', { credentials: 'same-origin' })
+        .then(r => r.ok ? r.json() : null)
+        .then(s => {
+          if (!s || !s.disk) return;
+          const pct = s.disk.total > 0 ? (s.disk.used / s.disk.total) * 100 : 0;
+          const fill = document.getElementById('storage-bar-fill');
+          const label = document.getElementById('storage-pct');
+          const wrap = document.getElementById('header-storage');
+          fill.style.width = pct.toFixed(1) + '%';
+          fill.classList.toggle('warn', pct >= 75 && pct < 90);
+          fill.classList.toggle('danger', pct >= 90);
+          label.textContent = `${Utils.formatBytes(s.disk.used)} / ${Utils.formatBytes(s.disk.total)}`;
+          wrap.title = `${Utils.formatBytes(s.disk.free)} free`;
+          wrap.style.display = 'flex';
+        })
+        .catch(() => {});
 
       // WS events
       WSClient.on('FILE_EXPIRED', (msg) => {
@@ -192,6 +224,7 @@
       });
       WSClient.on('FILE_DELETED', () => FileManagerModule.refresh());
       WSClient.on('FILE_UPDATED', () => FileManagerModule.refresh());
+      WSClient.on('FILE_ADDED', () => FileManagerModule.refresh());
     },
   };
 

@@ -115,6 +115,24 @@ const FileManagerModule = {
     });
   },
 
+  _actionBar(f) {
+    return `
+      <button class="act-btn" data-action="download" data-id="${f.id}" title="Download">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M5 7l3 3 3-3"/><path d="M2 13h12"/></svg>
+      </button>
+      <button class="act-btn${f.is_public ? '' : ' act-btn--disabled'}" data-action="${f.is_public ? 'qr' : ''}" data-id="${f.id}" title="${f.is_public ? 'QR Code' : 'Make public to share'}" ${f.is_public ? '' : 'disabled'}>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="5" height="5" rx="0.5"/><rect x="10" y="1" width="5" height="5" rx="0.5"/><rect x="1" y="10" width="5" height="5" rx="0.5"/><rect x="2.5" y="2.5" width="2" height="2"/><rect x="11.5" y="2.5" width="2" height="2"/><rect x="2.5" y="11.5" width="2" height="2"/><path d="M10 10h2v2h-2zM12 12h3M12 10h3v2M10 12v3"/></svg>
+      </button>
+      ${this._visToggle(f)}
+      <button class="act-btn" data-action="extend" data-id="${f.id}" title="Extend expiry">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 5v3.5l2.5 1.5"/></svg>
+      </button>
+      <button class="act-btn act-btn--danger" data-action="delete" data-id="${f.id}" title="Delete">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 9h8l1-9"/></svg>
+      </button>
+    `;
+  },
+
   _listRow(f) {
     const cls = Utils.expiryClass(f.expires_at);
     return `
@@ -124,13 +142,7 @@ const FileManagerModule = {
         <td class="file-size">${this._formatIST(f.created_at)}</td>
         <td class="file-expiry col-expiry ${cls}" data-expires="${f.expires_at || ''}">${Utils.formatExpiry(f.expires_at)}</td>
         <td class="file-size col-downloads">${f.download_count}</td>
-        <td class="file-actions">
-          <button class="btn btn-ghost btn-sm" data-action="download" data-id="${f.id}">Download</button>
-          ${f.is_public ? `<button class="btn btn-ghost btn-sm" data-action="qr" data-id="${f.id}">QR Code</button>` : ''}
-          ${this._visToggle(f)}
-          <button class="btn btn-ghost btn-sm" data-action="extend"  data-id="${f.id}">Extend</button>
-          <button class="btn btn-danger btn-sm" data-action="delete" data-id="${f.id}">Delete</button>
-        </td>
+        <td class="file-actions">${this._actionBar(f)}</td>
       </tr>
     `;
   },
@@ -141,13 +153,7 @@ const FileManagerModule = {
         <div class="file-card-name" title="${Utils.escape(f.name)}">${Utils.escape(f.name)}</div>
         <div class="file-card-meta">${Utils.formatBytes(f.size_bytes)}</div>
         <div class="file-card-meta" style="font-size:0.7rem;color:var(--color-text-dim)">${this._formatIST(f.created_at)}</div>
-        <div class="file-card-actions">
-          <button class="btn btn-ghost btn-sm" data-action="download" data-id="${f.id}">Download</button>
-          ${f.is_public ? `<button class="btn btn-ghost btn-sm" data-action="qr" data-id="${f.id}">QR Code</button>` : ''}
-          ${this._visToggle(f)}
-          <button class="btn btn-ghost btn-sm" data-action="extend"  data-id="${f.id}">Extend</button>
-          <button class="btn btn-danger btn-sm" data-action="delete" data-id="${f.id}">Delete</button>
-        </div>
+        <div class="file-card-actions">${this._actionBar(f)}</div>
       </div>
     `;
   },

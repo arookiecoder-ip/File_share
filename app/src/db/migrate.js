@@ -56,6 +56,31 @@ function migrate() {
     console.log('[migrate] Created device_tokens table');
   }
 
+  // Add upload_requests table if missing
+  const urTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='upload_requests'").get();
+  if (!urTable) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS upload_requests (
+        id TEXT PRIMARY KEY,
+        token TEXT NOT NULL UNIQUE,
+        used INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        file_id TEXT,
+        pending_upload_id TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_upload_requests_token ON upload_requests(token);
+    `);
+    console.log('[migrate] Created upload_requests table');
+  } else {
+    // Add pending_upload_id column if missing (for existing DBs)
+    const urCols = db.prepare("PRAGMA table_info(upload_requests)").all().map(c => c.name);
+    if (!urCols.includes('pending_upload_id')) {
+      db.exec('ALTER TABLE upload_requests ADD COLUMN pending_upload_id TEXT');
+      console.log('[migrate] Added pending_upload_id column to upload_requests');
+    }
+  }
+
   console.log(`[migrate] Schema applied to ${dbPath}`);
   db.close();
 }

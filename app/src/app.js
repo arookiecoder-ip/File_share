@@ -85,6 +85,7 @@ async function buildApp() {
   await fastify.register(require('./routes/auth'),   { prefix: '/api/auth' });
   await fastify.register(require('./routes/files'),  { prefix: '/api' });
   await fastify.register(require('./routes/chunks'), { prefix: '/api' });
+  await fastify.register(require('./routes/uploadRequests'), { prefix: '/api' });
 
   // WebSocket route
   const { wsRoutes } = require('./routes/ws');
