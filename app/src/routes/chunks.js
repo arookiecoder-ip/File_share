@@ -10,7 +10,6 @@ const {
   decryptFilename,
 } = require('../services/encryption');
 const { broadcast } = require('./ws');
-const { validateFileType } = require('../middleware/fileType');
 
 const EXPIRY_OPTIONS = {
   '1h':  60 * 60 * 1000,
@@ -232,14 +231,6 @@ async function chunksRoutes(fastify) {
     if (!keydata) {
       fs.unlink(outPath, () => {});
       return reply.code(500).send({ error: 'Encryption key not generated' });
-    }
-
-    // MIME validation on first chunk bytes
-    const firstChunkBuf = fs.readFileSync(chunkFile(uploadId, 0));
-    const typeCheck = await validateFileType(firstChunkBuf.slice(0, 4100), upload.original_name);
-    if (!typeCheck.ok) {
-      fs.unlink(outPath, () => {});
-      return reply.code(422).send({ error: typeCheck.reason });
     }
 
     const actualSha = plainHasher.digest('hex');

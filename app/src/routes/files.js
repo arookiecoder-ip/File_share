@@ -4,7 +4,6 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const QRCode = require('qrcode');
 const archiver = require('archiver');
-const { validateFileType } = require('../middleware/fileType');
 const { getDb } = require('../db/db');
 const { config } = require('../config');
 const {
@@ -106,12 +105,6 @@ async function filesRoutes(fastify) {
     if (!keydata) {
       fs.unlink(filePath, () => {});
       return reply.code(500).send({ error: 'Encryption key not generated' });
-    }
-
-    const typeCheck = await validateFileType(Buffer.concat(chunks.slice(0, 4)), data.filename);
-    if (!typeCheck.ok) {
-      fs.unlink(filePath, () => {});
-      return reply.code(422).send({ error: typeCheck.reason });
     }
 
     const sha256 = hasher.digest('hex');
