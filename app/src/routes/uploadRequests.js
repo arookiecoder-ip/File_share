@@ -83,14 +83,33 @@ function uploadLandingPage(state, token, nonce) {
               row.innerHTML =
                 '<div class="fr-name">' + escHtml(name) + '</div>' +
                 '<div class="fr-track"><div class="fr-bar"></div></div>' +
-                '<div class="fr-status">waiting…</div>';
+                '<div class="fr-meta"><span class="fr-status">waiting…</span><span class="fr-speed"></span></div>';
               fileList.appendChild(row);
               return row;
             }
 
-            function setRowProgress(row, pct) {
+            function fmtSpeed(bps) {
+              if (bps >= 1e9) return (bps / 1e9).toFixed(1) + ' GB/s';
+              if (bps >= 1e6) return (bps / 1e6).toFixed(1) + ' MB/s';
+              if (bps >= 1e3) return (bps / 1e3).toFixed(0) + ' KB/s';
+              return bps.toFixed(0) + ' B/s';
+            }
+
+            function fmtEta(secs) {
+              if (!isFinite(secs) || secs <= 0) return '';
+              if (secs < 60) return secs.toFixed(0) + 's';
+              return Math.ceil(secs / 60) + 'm';
+            }
+
+            function setRowProgress(row, pct, loaded, total, startTime) {
               row.querySelector('.fr-bar').style.width = pct + '%';
               row.querySelector('.fr-status').textContent = pct + '%';
+              const elapsed = (Date.now() - startTime) / 1000;
+              if (elapsed > 0.5 && loaded > 0) {
+                const bps = loaded / elapsed;
+                const eta = (total - loaded) / bps;
+                row.querySelector('.fr-speed').textContent = fmtSpeed(bps) + (eta > 1 ? '  ETA ' + fmtEta(eta) : '');
+              }
             }
 
             function setRowDone(row) {
@@ -98,22 +117,25 @@ function uploadLandingPage(state, token, nonce) {
               row.querySelector('.fr-bar').style.background = '#00ff88';
               row.querySelector('.fr-status').textContent = '✓ done';
               row.querySelector('.fr-status').style.color = '#00ff88';
+              row.querySelector('.fr-speed').textContent = '';
             }
 
             function setRowError(row, msg) {
               row.querySelector('.fr-bar').style.background = '#ff4444';
               row.querySelector('.fr-status').textContent = '✗ ' + msg;
               row.querySelector('.fr-status').style.color = '#ff4444';
+              row.querySelector('.fr-speed').textContent = '';
             }
 
             async function simpleUpload(file, row) {
               return new Promise((resolve, reject) => {
+                const startTime = Date.now();
                 const fd = new FormData();
                 fd.append('file', file);
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', '/api/u/' + token + '/upload');
                 xhr.upload.onprogress = e => {
-                  if (e.lengthComputable) setRowProgress(row, Math.round(e.loaded / e.total * 100));
+                  if (e.lengthComputable) setRowProgress(row, Math.round(e.loaded / e.total * 100), e.loaded, e.total, startTime);
                 };
                 xhr.onload = () => {
                   if (xhr.status >= 200 && xhr.status < 300) {
@@ -144,6 +166,7 @@ function uploadLandingPage(state, token, nonce) {
               if (!initRes.ok) { const e = await initRes.json().catch(()=>({})); throw new Error(e.error || 'Init failed'); }
               const { uploadId } = await initRes.json();
 
+              const startTime = Date.now();
               let uploaded = 0;
               for (let i = 0; i < totalChunks; i++) {
                 const start = i * CHUNK;
@@ -155,7 +178,7 @@ function uploadLandingPage(state, token, nonce) {
                 });
                 if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || 'Chunk failed'); }
                 uploaded += slice.size;
-                setRowProgress(row, Math.round(uploaded / file.size * 100));
+                setRowProgress(row, Math.round(uploaded / file.size * 100), uploaded, file.size, startTime);
               }
 
               const finRes = await fetch('/api/u/' + token + '/chunked/' + uploadId + '/finalize', { method: 'POST' });
@@ -213,7 +236,9 @@ function uploadLandingPage(state, token, nonce) {
     .fr-name{font-size:.8rem;color:#ccc;margin-bottom:6px;word-break:break-all}
     .fr-track{height:4px;background:#00f5ff22;border-radius:2px;overflow:hidden;margin-bottom:4px}
     .fr-bar{height:100%;background:#00f5ff;width:0;transition:width .15s}
-    .fr-status{font-size:.72rem;color:#00f5ff88;text-align:right}
+    .fr-meta{display:flex;justify-content:space-between;align-items:center}
+    .fr-status{font-size:.72rem;color:#00f5ff88}
+    .fr-speed{font-size:.72rem;color:#00f5ff66;letter-spacing:.04em}
     .info-msg{font-size:.9rem;color:#ccc;text-align:center;line-height:1.6}
     .hidden{display:none!important}
     .gh-footer{margin-top:24px;text-align:center}
