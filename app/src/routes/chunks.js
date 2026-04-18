@@ -40,9 +40,7 @@ function storagePath(storageId) {
 
 async function chunksRoutes(fastify) {
   // ── Init upload ───────────────────────────────────────────────────────────
-  fastify.post('/upload/chunked/init', {
-    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
-  }, async (req, reply) => {
+  fastify.post('/upload/chunked/init', async (req, reply) => {
     const { filename, mimeType, totalSize, totalChunks, sha256, expiresIn = '24h' } = req.body || {};
 
     if (!filename || !mimeType || !totalSize || !totalChunks) {
@@ -73,9 +71,7 @@ async function chunksRoutes(fastify) {
   });
 
   // ── Upload chunk ──────────────────────────────────────────────────────────
-  fastify.put('/upload/chunked/:uploadId/chunk/:index', {
-    config: { rateLimit: { max: 500, timeWindow: '1 minute' } },
-  }, async (req, reply) => {
+  fastify.put('/upload/chunked/:uploadId/chunk/:index', async (req, reply) => {
     const { uploadId, index } = req.params;
     const chunkIndex = parseInt(index, 10);
 
@@ -136,13 +132,11 @@ async function chunksRoutes(fastify) {
     ).get(uploadId).total || 0;
     broadcast('UPLOAD_PROGRESS', { uploadId, percent, bytesLoaded, totalSize: upload.total_size });
 
-    return reply.send({ ok: true, chunkIndex, size, sha256: actualSha });
+    return reply.send({ ok: true, chunkIndex, size });
   });
 
   // ── Finalize upload ───────────────────────────────────────────────────────
-  fastify.post('/upload/chunked/:uploadId/finalize', {
-    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
-  }, async (req, reply) => {
+  fastify.post('/upload/chunked/:uploadId/finalize', async (req, reply) => {
     const { uploadId } = req.params;
 
     const db = getDb();
@@ -190,9 +184,12 @@ async function chunksRoutes(fastify) {
 
         (async () => {
           for (const chunk of received) {
-            const buf = fs.readFileSync(chunkFile(uploadId, chunk.chunk_index));
-            plainHasher.update(buf);
-            encStream.write(buf);
+            await new Promise((res, rej) => {
+              const rs = fs.createReadStream(chunkFile(uploadId, chunk.chunk_index));
+              rs.on('data', (buf) => { plainHasher.update(buf); encStream.write(buf); });
+              rs.on('end', res);
+              rs.on('error', rej);
+            });
           }
           encStream.end();
         })().catch(reject);

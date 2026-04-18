@@ -6,6 +6,7 @@ const QRCode = require('qrcode');
 const archiver = require('archiver');
 const { getDb } = require('../db/db');
 const { config } = require('../config');
+const { broadcast } = require('./ws');
 const {
   createEncryptStream,
   createDecryptStream,
@@ -54,9 +55,7 @@ function buildFileRow(row) {
 
 async function filesRoutes(fastify) {
   // ── Simple upload (< 10MB sync) ──────────────────────────────────────────
-  fastify.post('/upload/simple', {
-    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
-  }, async (req, reply) => {
+  fastify.post('/upload/simple', async (req, reply) => {
     const data = await req.file();
     if (!data) return reply.code(400).send({ error: 'No file' });
 
@@ -235,6 +234,7 @@ async function filesRoutes(fastify) {
       VALUES (?,?,?,?,?,?)
     `).run(uuidv4(), 'delete', row.id, row.size_bytes, ipHash(req.ip), Date.now());
 
+    broadcast('FILE_DELETED', { fileId: row.id });
     return reply.send({ ok: true });
   });
   // ── QR code ───────────────────────────────────────────────────────────────
@@ -256,6 +256,7 @@ async function filesRoutes(fastify) {
     const row = db.prepare('SELECT id FROM files WHERE id = ? AND status = ?').get(req.params.id, 'complete');
     if (!row) return reply.code(404).send({ error: 'File not found' });
     db.prepare('UPDATE files SET is_public = ? WHERE id = ?').run(isPublic ? 1 : 0, req.params.id);
+    broadcast('FILE_UPDATED', { fileId: req.params.id });
     return reply.send({ ok: true, isPublic });
   });
 
@@ -276,6 +277,7 @@ async function filesRoutes(fastify) {
       newExpiry = base + EXPIRY_OPTIONS[expiresIn];
     }
     db.prepare('UPDATE files SET expires_at = ? WHERE id = ?').run(newExpiry, row.id);
+    broadcast('FILE_UPDATED', { fileId: row.id });
     return reply.send({ ok: true, expires_at: newExpiry, never_expires: newExpiry === null });
   });
 

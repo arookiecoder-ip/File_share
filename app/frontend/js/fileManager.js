@@ -33,6 +33,7 @@ const FileManagerModule = {
           <button class="sort-btn ${this._sort === 'name' ? 'active' : ''}" data-s="name">NAME</button>
           <button class="sort-btn ${this._sort === 'size' ? 'active' : ''}" data-s="size">SIZE</button>
         </div>
+        <button class="btn btn-ghost btn-sm" id="btn-sync" title="Sync files">⟳ SYNC</button>
       </div>
       <div id="files-content"></div>
     `;
@@ -46,6 +47,8 @@ const FileManagerModule = {
         this._renderFiles();
       });
     });
+
+    container.querySelector('#btn-sync').addEventListener('click', () => this.refresh());
 
     container.querySelectorAll('.sort-btn').forEach((b) => {
       b.addEventListener('click', () => {

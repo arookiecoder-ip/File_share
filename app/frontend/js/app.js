@@ -190,6 +190,8 @@
       WSClient.on('DOWNLOAD_READY', (msg) => {
         Notifications.success('DOWNLOAD READY', msg.filename || '');
       });
+      WSClient.on('FILE_DELETED', () => FileManagerModule.refresh());
+      WSClient.on('FILE_UPDATED', () => FileManagerModule.refresh());
     },
   };
 
