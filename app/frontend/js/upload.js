@@ -1,7 +1,8 @@
 // UploadManager — simple (<10MB) + chunked (>=10MB) with SHA-256, 3-retry backoff, resume
 const UploadManager = {
-  CHUNK_SIZE: 5 * 1024 * 1024,
+  CHUNK_SIZE: 20 * 1024 * 1024,
   MAX_RETRIES: 3,
+  PARALLEL: 4,
 
   // uploadId -> { file, totalChunks, chunkShas, aborted }
   _active: {},
@@ -46,7 +47,7 @@ const UploadManager = {
   },
 
   async upload(file) {
-    if (file.size < 10 * 1024 * 1024) {
+    if (file.size < 500 * 1024 * 1024) {
       await this._simpleUpload(file);
     } else {
       await this._chunkedUpload(file);
@@ -110,21 +111,22 @@ const UploadManager = {
 
       this._active[uploadId] = { file, totalChunks, progressId, aborted: false };
 
-      // 2. Upload missing chunks
+      // 2. Upload missing chunks in parallel
+      const pending = [];
       for (let i = 0; i < totalChunks; i++) {
-        if (received.has(i)) {
-          Progress.advance(progressId, this._chunkSize(file, i));
-          continue;
-        }
+        if (received.has(i)) { Progress.advance(progressId, this._chunkSize(file, i)); continue; }
+        pending.push(i);
+      }
 
-        const state = this._active[uploadId];
-        if (state?.aborted) throw new Error('Upload aborted');
-
-        const start = i * this.CHUNK_SIZE;
-        const slice = file.slice(start, start + this.CHUNK_SIZE);
-        await this._uploadChunk(uploadId, i, slice, null);
-
-        Progress.advance(progressId, slice.size);
+      for (let i = 0; i < pending.length; i += this.PARALLEL) {
+        if (this._active[uploadId]?.aborted) throw new Error('Upload aborted');
+        const batch = pending.slice(i, i + this.PARALLEL);
+        await Promise.all(batch.map(async (idx) => {
+          const start = idx * this.CHUNK_SIZE;
+          const slice = file.slice(start, start + this.CHUNK_SIZE);
+          await this._uploadChunk(uploadId, idx, slice, null);
+          Progress.advance(progressId, slice.size);
+        }));
       }
 
       // 4. Finalize

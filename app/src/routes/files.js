@@ -77,8 +77,6 @@ async function filesRoutes(fastify) {
     let keydata = null;
     encStream.once('keydata', (kd) => { keydata = kd; });
 
-    // Tee: hash the plaintext as it flows, encrypt to disk
-    const chunks = [];
     let totalSize = 0;
 
     try {
@@ -86,7 +84,6 @@ async function filesRoutes(fastify) {
         data.file.on('data', (chunk) => {
           hasher.update(chunk);
           totalSize += chunk.length;
-          chunks.push(chunk);
           encStream.write(chunk);
         });
         data.file.on('end', () => { encStream.end(); });
