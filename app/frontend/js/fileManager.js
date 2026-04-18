@@ -168,7 +168,9 @@ const FileManagerModule = {
       if (action === 'download') {
         window.location.href = `/api/files/${id}/download`;
       } else if (action === 'copylink') {
-        Utils.copyToClipboard(`${location.origin}/api/files/${id}/download`);
+        const f = this._files.find((f) => f.id === id);
+        if (!f || !f.share_token) { Notifications.error('No public link — make file public first'); return; }
+        Utils.copyToClipboard(`${location.origin}/api/files/s/${f.share_token}/download`);
         const orig = btn.textContent;
         btn.textContent = 'Copied!';
         setTimeout(() => { btn.textContent = orig; }, 1500);
@@ -196,9 +198,9 @@ const FileManagerModule = {
       credentials: 'same-origin',
     });
     if (res.ok) {
+      const data = await res.json();
       const f = this._files.find((f) => f.id === id);
-      if (f) f.is_public = isPublic;
-      // Update only the toggle buttons in-place — no full re-render, no scroll jump
+      if (f) { f.is_public = isPublic; f.share_token = data.shareToken || null; }
       document.querySelectorAll(`.vis-toggle[data-id="${id}"]`).forEach((btn) => {
         btn.dataset.public = String(isPublic);
         btn.classList.toggle('is-public', isPublic);

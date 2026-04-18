@@ -20,6 +20,11 @@ function migrate() {
     db.exec('ALTER TABLE files ADD COLUMN is_public INTEGER DEFAULT 0');
     console.log('[migrate] Added is_public column to files');
   }
+  if (!cols.includes('share_token')) {
+    db.exec('ALTER TABLE files ADD COLUMN share_token TEXT');
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_files_share_token ON files(share_token) WHERE share_token IS NOT NULL');
+    console.log('[migrate] Added share_token column to files');
+  }
 
   // Add password_config table if missing
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='password_config'").get();

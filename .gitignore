@@ -11,6 +11,9 @@ app/.env
 app/data/db/*.db
 app/data/db/*.db-shm
 app/data/db/*.db-wal
+db/*.db
+db/*.db-shm
+db/*.db-wal
 
 # Uploaded files
 app/data/storage/

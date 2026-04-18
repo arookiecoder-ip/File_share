@@ -34,12 +34,98 @@ function storagePath(storageId) {
   return path.join(config.storagePath, storageId);
 }
 
+function accessDeniedPage(msg) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>GROOVY YAO // ACCESS DENIED</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#050a0e;color:#00f5ff;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+    .card{border:1px solid #00f5ff44;padding:48px 40px;max-width:420px;width:100%;text-align:center}
+    .icon{font-size:3rem;margin-bottom:24px;color:#ff4444}
+    .title{font-size:1.1rem;font-weight:700;letter-spacing:.15em;color:#ff4444;margin-bottom:8px}
+    .sub{font-size:.8rem;color:#ffffff66;letter-spacing:.08em;margin-bottom:32px}
+    .msg{font-size:.9rem;color:#ccc;margin-bottom:32px;line-height:1.6}
+    .btn{display:inline-block;padding:10px 24px;border:1px solid #00f5ff;color:#00f5ff;text-decoration:none;font-family:inherit;font-size:.8rem;letter-spacing:.1em;cursor:pointer;background:transparent}
+    .btn:hover{background:#00f5ff;color:#000}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">⬡</div>
+    <div class="title">// ACCESS DENIED</div>
+    <div class="sub">GROOVY YAO — SECURE FILE TRANSFER</div>
+    <div class="msg">${msg}</div>
+    <a href="/" class="btn">RETURN TO BASE</a>
+  </div>
+</body>
+</html>`;
+}
+
+function downloadPage(row, filename) {
+  const safeFilename = filename.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const formatBytes = (b) => {
+    if (b >= 1073741824) return (b / 1073741824).toFixed(2) + ' GB';
+    if (b >= 1048576) return (b / 1048576).toFixed(2) + ' MB';
+    if (b >= 1024) return (b / 1024).toFixed(2) + ' KB';
+    return b + ' B';
+  };
+  const uploadedAt = new Date(row.created_at).toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const expiryStr = row.expires_at
+    ? new Date(row.expires_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : 'Never';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>GROOVY YAO // ${safeFilename}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#050a0e;color:#00f5ff;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+    .card{border:1px solid #00f5ff44;padding:48px 40px;max-width:480px;width:100%}
+    .brand{font-size:.75rem;letter-spacing:.2em;color:#00f5ff88;margin-bottom:32px}
+    .icon{font-size:3rem;color:#00f5ff66;margin-bottom:20px}
+    .filename{font-size:1.1rem;font-weight:700;color:#fff;word-break:break-all;margin-bottom:24px;line-height:1.4}
+    .meta{display:flex;flex-direction:column;gap:10px;margin-bottom:32px;border-top:1px solid #00f5ff22;padding-top:20px}
+    .meta-row{display:flex;justify-content:space-between;font-size:.78rem}
+    .meta-label{color:#00f5ff88;letter-spacing:.08em}
+    .meta-value{color:#ccc;text-align:right}
+    .btn{display:block;width:100%;padding:14px;border:1px solid #00ff88;color:#00ff88;background:transparent;font-family:inherit;font-size:.85rem;font-weight:700;letter-spacing:.12em;cursor:pointer;text-align:center;text-decoration:none;transition:background .15s,color .15s}
+    .btn:hover{background:#00ff88;color:#000}
+    .footer{margin-top:20px;text-align:center;font-size:.68rem;color:#ffffff33;letter-spacing:.1em}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">GROOVY YAO // SECURE FILE TRANSFER</div>
+    <div class="icon">⬡</div>
+    <div class="filename">${safeFilename}</div>
+    <div class="meta">
+      <div class="meta-row"><span class="meta-label">SIZE</span><span class="meta-value">${formatBytes(row.size_bytes)}</span></div>
+      <div class="meta-row"><span class="meta-label">UPLOADED</span><span class="meta-value">${uploadedAt}</span></div>
+      <div class="meta-row"><span class="meta-label">EXPIRES</span><span class="meta-value">${expiryStr}</span></div>
+      <div class="meta-row"><span class="meta-label">DOWNLOADS</span><span class="meta-value">${row.download_count}</span></div>
+    </div>
+    <a href="?dl=1" class="btn">⬇ DOWNLOAD FILE</a>
+    <div class="footer">// ENCRYPTED TRANSFER</div>
+  </div>
+</body>
+</html>`;
+}
+
 function buildFileRow(row) {
   let name = row.original_name;
   try {
     const nameTag = (row.encryption_tag || '').split(':')[1] || row.encryption_tag;
     name = decryptFilename(row.original_name, row.original_name_iv, nameTag, row.id);
-  } catch { /* use raw if decryption fails (shouldn't happen) */ }
+  } catch { /* use raw if decryption fails */ }
   return {
     id: row.id,
     name,
@@ -50,6 +136,7 @@ function buildFileRow(row) {
     created_at: row.created_at,
     download_count: row.download_count,
     is_public: row.is_public === 1,
+    share_token: row.share_token || null,
   };
 }
 
@@ -137,139 +224,67 @@ async function filesRoutes(fastify) {
     });
   });
 
-  // ── Download ─────────────────────────────────────────────────────────────
-  fastify.get('/files/:id/download', { config: { public: true } }, async (req, reply) => {
+  // ── Download by share token (public files only) ───────────────────────────
+  fastify.get('/files/s/:token/download', { config: { public: true } }, async (req, reply) => {
     const db = getDb();
-    const row = db.prepare('SELECT * FROM files WHERE id = ? AND status = ?').get(req.params.id, 'complete');
-    if (!row) return reply.code(404).send({ error: 'File not found' });
+    const row = db.prepare('SELECT * FROM files WHERE share_token = ? AND status = ? AND is_public = 1').get(req.params.token, 'complete');
+    const isBrowser = (req.headers['accept'] || '').includes('text/html');
+    const denyHtml = (code, msg) => reply.code(code).type('text/html').send(accessDeniedPage(msg));
+
+    if (!row) return isBrowser ? denyHtml(404, 'This link is invalid or the file has been made private.') : reply.code(404).send({ error: 'Not found' });
     if (row.expires_at && row.expires_at < Date.now()) {
-      return reply.code(410).send({ error: 'File expired' });
-    }
-    if (!row.is_public) {
-      const token = req.cookies?.access_token;
-      const isBrowser = (req.headers['accept'] || '').includes('text/html');
-      const deny = (code, msg) => {
-        if (isBrowser) {
-          return reply.code(code).type('text/html').send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>GROOVY YAO // ACCESS DENIED</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{background:#050a0e;color:#00f5ff;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
-    .card{border:1px solid #00f5ff44;padding:48px 40px;max-width:420px;width:100%;text-align:center}
-    .icon{font-size:3rem;margin-bottom:24px;color:#ff4444}
-    .title{font-size:1.1rem;font-weight:700;letter-spacing:.15em;color:#ff4444;margin-bottom:8px}
-    .sub{font-size:.8rem;color:#ffffff66;letter-spacing:.08em;margin-bottom:32px}
-    .msg{font-size:.9rem;color:#ccc;margin-bottom:32px;line-height:1.6}
-    .btn{display:inline-block;padding:10px 24px;border:1px solid #00f5ff;color:#00f5ff;text-decoration:none;font-family:inherit;font-size:.8rem;letter-spacing:.1em;cursor:pointer;background:transparent}
-    .btn:hover{background:#00f5ff;color:#000}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon">⬡</div>
-    <div class="title">// ACCESS DENIED</div>
-    <div class="sub">GROOVY YAO — SECURE FILE TRANSFER</div>
-    <div class="msg">${msg}</div>
-    <a href="/" class="btn">RETURN TO BASE</a>
-  </div>
-</body>
-</html>`);
-        }
-        return reply.code(code).send({ error: msg });
-      };
-      if (!token) return deny(401, 'This file is private. Authentication required.');
-      try {
-        const { verifyAccessToken, getSession } = require('../services/auth');
-        const sessionId = await verifyAccessToken(token);
-        if (!getSession(sessionId)) return deny(401, 'Session revoked.');
-      } catch {
-        return deny(401, 'Unauthorized.');
-      }
+      return isBrowser ? denyHtml(410, 'This file has expired.') : reply.code(410).send({ error: 'File expired' });
     }
 
     const filePath = storagePath(row.storage_id);
     if (!fs.existsSync(filePath)) return reply.code(404).send({ error: 'Storage missing' });
 
-    // encryption_iv column stores "salt:iv_b64", encryption_tag stores "tag_b64:name_tag_b64"
     const saltHex = row.encryption_iv.split(':')[0];
-
     let filename;
     try {
       const nameTag = row.encryption_tag.split(':')[1];
       filename = decryptFilename(row.original_name, row.original_name_iv, nameTag, row.id);
-    } catch {
-      filename = 'download';
-    }
+    } catch { filename = 'download'; }
 
-    // Show download page for browser requests on public files (no ?dl=1)
-    const isBrowser = (req.headers['accept'] || '').includes('text/html');
-    if (isBrowser && row.is_public && req.query.dl !== '1') {
-      const sizeBytes = row.size_bytes;
-      const formatBytes = (b) => {
-        if (b >= 1073741824) return (b / 1073741824).toFixed(2) + ' GB';
-        if (b >= 1048576) return (b / 1048576).toFixed(2) + ' MB';
-        if (b >= 1024) return (b / 1024).toFixed(2) + ' KB';
-        return b + ' B';
-      };
-      const uploadedAt = new Date(row.created_at).toLocaleString('en-GB', {
-        day: '2-digit', month: 'short', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-      });
-      const expiryStr = row.expires_at
-        ? new Date(row.expires_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-        : 'Never';
-      const safeFilename = filename.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      return reply.type('text/html').send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>GROOVY YAO // ${safeFilename}</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{background:#050a0e;color:#00f5ff;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
-    .card{border:1px solid #00f5ff44;padding:48px 40px;max-width:480px;width:100%}
-    .brand{font-size:.75rem;letter-spacing:.2em;color:#00f5ff88;margin-bottom:32px}
-    .icon{font-size:3rem;color:#00f5ff66;margin-bottom:20px}
-    .filename{font-size:1.1rem;font-weight:700;color:#fff;word-break:break-all;margin-bottom:24px;line-height:1.4}
-    .meta{display:flex;flex-direction:column;gap:10px;margin-bottom:32px;border-top:1px solid #00f5ff22;padding-top:20px}
-    .meta-row{display:flex;justify-content:space-between;font-size:.78rem}
-    .meta-label{color:#00f5ff88;letter-spacing:.08em}
-    .meta-value{color:#ccc;text-align:right}
-    .btn{display:block;width:100%;padding:14px;border:1px solid #00ff88;color:#00ff88;background:transparent;font-family:inherit;font-size:.85rem;font-weight:700;letter-spacing:.12em;cursor:pointer;text-align:center;text-decoration:none;transition:background .15s,color .15s}
-    .btn:hover{background:#00ff88;color:#000}
-    .footer{margin-top:20px;text-align:center;font-size:.68rem;color:#ffffff33;letter-spacing:.1em}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="brand">GROOVY YAO // SECURE FILE TRANSFER</div>
-    <div class="icon">⬡</div>
-    <div class="filename">${safeFilename}</div>
-    <div class="meta">
-      <div class="meta-row"><span class="meta-label">SIZE</span><span class="meta-value">${formatBytes(sizeBytes)}</span></div>
-      <div class="meta-row"><span class="meta-label">UPLOADED</span><span class="meta-value">${uploadedAt}</span></div>
-      <div class="meta-row"><span class="meta-label">EXPIRES</span><span class="meta-value">${expiryStr}</span></div>
-      <div class="meta-row"><span class="meta-label">DOWNLOADS</span><span class="meta-value">${row.download_count}</span></div>
-    </div>
-    <a href="?dl=1" class="btn">⬇ DOWNLOAD FILE</a>
-    <div class="footer">// ENCRYPTED TRANSFER</div>
-  </div>
-</body>
-</html>`);
+    if (isBrowser && req.query.dl !== '1') {
+      return reply.type('text/html').send(downloadPage(row, filename));
     }
 
     db.prepare('UPDATE files SET download_count = download_count + 1 WHERE id = ?').run(row.id);
+    db.prepare(`INSERT INTO transfer_history (id, event_type, file_id, size_bytes, ip_hash, timestamp) VALUES (?,?,?,?,?,?)`)
+      .run(uuidv4(), 'download', row.id, row.size_bytes, ipHash(req.ip), Date.now());
 
-    const now = Date.now();
-    db.prepare(`
-      INSERT INTO transfer_history (id, event_type, file_id, size_bytes, ip_hash, timestamp)
-      VALUES (?,?,?,?,?,?)
-    `).run(uuidv4(), 'download', row.id, row.size_bytes, ipHash(req.ip), now);
+    const safeFilename = encodeURIComponent(filename).replace(/['()]/g, escape).replace(/\*/g, '%2A');
+    reply.header('Content-Type', row.mime_type || 'application/octet-stream');
+    reply.header('Content-Disposition', `attachment; filename="${safeFilename}"; filename*=UTF-8''${safeFilename}`);
+    reply.header('X-Content-Type-Options', 'nosniff');
+
+    const readStream = fs.createReadStream(filePath);
+    const decStream = createDecryptStream(row.id, saltHex);
+    readStream.pipe(decStream);
+    return reply.send(decStream);
+  });
+
+  // ── Download by file ID (authenticated only) ──────────────────────────────
+  fastify.get('/files/:id/download', async (req, reply) => {
+    const db = getDb();
+    const row = db.prepare('SELECT * FROM files WHERE id = ? AND status = ?').get(req.params.id, 'complete');
+    if (!row) return reply.code(404).send({ error: 'File not found' });
+    if (row.expires_at && row.expires_at < Date.now()) return reply.code(410).send({ error: 'File expired' });
+
+    const filePath = storagePath(row.storage_id);
+    if (!fs.existsSync(filePath)) return reply.code(404).send({ error: 'Storage missing' });
+
+    const saltHex = row.encryption_iv.split(':')[0];
+    let filename;
+    try {
+      const nameTag = row.encryption_tag.split(':')[1];
+      filename = decryptFilename(row.original_name, row.original_name_iv, nameTag, row.id);
+    } catch { filename = 'download'; }
+
+    db.prepare('UPDATE files SET download_count = download_count + 1 WHERE id = ?').run(row.id);
+    db.prepare(`INSERT INTO transfer_history (id, event_type, file_id, size_bytes, ip_hash, timestamp) VALUES (?,?,?,?,?,?)`)
+      .run(uuidv4(), 'download', row.id, row.size_bytes, ipHash(req.ip), Date.now());
 
     const safeFilename = encodeURIComponent(filename).replace(/['()]/g, escape).replace(/\*/g, '%2A');
     reply.header('Content-Type', row.mime_type || 'application/octet-stream');
@@ -332,10 +347,11 @@ async function filesRoutes(fastify) {
   // ── QR code ───────────────────────────────────────────────────────────────
   fastify.get('/files/:id/qr', async (req, reply) => {
     const db = getDb();
-    const row = db.prepare('SELECT id, original_name, original_name_iv, encryption_tag FROM files WHERE id = ? AND status = ?').get(req.params.id, 'complete');
+    const row = db.prepare('SELECT id, share_token, is_public FROM files WHERE id = ? AND status = ?').get(req.params.id, 'complete');
     if (!row) return reply.code(404).send({ error: 'File not found' });
+    if (!row.is_public || !row.share_token) return reply.code(403).send({ error: 'File is not public' });
 
-    const downloadUrl = `${config.domain}/api/files/${row.id}/download`;
+    const downloadUrl = `${config.domain}/api/files/s/${row.share_token}/download`;
     const dataUrl = await QRCode.toDataURL(downloadUrl, { width: 256, margin: 2 });
     return reply.send({ dataUrl, downloadUrl });
   });
@@ -347,9 +363,15 @@ async function filesRoutes(fastify) {
     const db = getDb();
     const row = db.prepare('SELECT id FROM files WHERE id = ? AND status = ?').get(req.params.id, 'complete');
     if (!row) return reply.code(404).send({ error: 'File not found' });
-    db.prepare('UPDATE files SET is_public = ? WHERE id = ?').run(isPublic ? 1 : 0, req.params.id);
+    let shareToken = null;
+    if (isPublic) {
+      shareToken = crypto.randomBytes(24).toString('base64url');
+      db.prepare('UPDATE files SET is_public = 1, share_token = ? WHERE id = ?').run(shareToken, req.params.id);
+    } else {
+      db.prepare('UPDATE files SET is_public = 0, share_token = NULL WHERE id = ?').run(req.params.id);
+    }
     broadcast('FILE_UPDATED', { fileId: req.params.id });
-    return reply.send({ ok: true, isPublic });
+    return reply.send({ ok: true, isPublic, shareToken });
   });
 
   // ── Extend expiry ─────────────────────────────────────────────────────────
